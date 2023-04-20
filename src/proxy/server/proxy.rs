@@ -6,6 +6,8 @@ pub struct Proxy {
     pub(super) host: String,
     pub(super) port: u16,
     pub(super) k8s_client: K8sClient,
+    pub(super) key_path: String,
+    pub(super) cert_path: String,
 }
 
 impl Proxy {
@@ -16,6 +18,8 @@ impl Proxy {
             host: props.proxy_host.clone(),
             port: props.proxy_port,
             k8s_client,
+            key_path: props.proxy_tls_key.clone(),
+            cert_path: props.proxy_tls_cert.clone(),
         });
     }
 }

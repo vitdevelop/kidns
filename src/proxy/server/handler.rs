@@ -5,32 +5,40 @@ use k8s_openapi::api::core::v1::Pod;
 use kube::{Api, ResourceExt};
 use log::error;
 use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::net::TcpListener;
+use tokio::net::{TcpListener, TcpStream};
+use tokio_rustls::TlsAcceptor;
 use tokio_stream::wrappers::TcpListenerStream;
 use crate::proxy::server::proxy::Proxy;
+use crate::proxy::server::tls::tls_acceptor;
 use crate::util::Result;
 
 impl Proxy {
     pub async fn serve(self) -> Result<()> {
         let k8s_client = &self.k8s_client;
 
-        let pod_list = k8s_client.pod_list().await?;
+        let mut pod_list = k8s_client.pod_list().await?;
         let pod_api = k8s_client.pod_api()?;
 
-        return if let Some(pod) = pod_list.items.first() {
+        let acceptor = tls_acceptor(self.cert_path.as_str(), self.key_path.as_str()).await?;
+
+        return if let Some(pod) = pod_list.items.pop() {
             let addr = SocketAddr::from((Ipv4Addr::from_str(&self.host)?, self.port));
+            let pod_name = pod.name_any();
 
             let server = TcpListenerStream::new(TcpListener::bind(addr).await?)
                 .try_for_each(|client_conn| async {
-                    let pods = pod_api.clone();
+                    let acceptor = acceptor.clone();
+                    let pod_api = pod_api.clone();
+                    let pod_name = pod_name.clone();
+                    let pod_port = k8s_client.pod_port;
 
-                    let name = pod.name_any();
-                    let pod_port = 80;
                     tokio::spawn(async move {
-                        if let Err(e) = forward_connection(&pods, name.as_str(), pod_port, client_conn).await {
-                            error!("Err forward connection: {:?}", e)
-                        }
+                        match handle_connection(client_conn, acceptor, pod_api, pod_name.clone(), pod_port).await {
+                            Ok(_) => {}
+                            Err(e) => error!("Error on handle client, err: {:?}", e)
+                        };
                     });
+
                     // keep the server running
                     Ok(())
                 });
@@ -43,11 +51,39 @@ impl Proxy {
     }
 }
 
+async fn handle_client(
+    pod_api: Api<Pod>,
+    pod_name: String,
+    pod_port: u16,
+    client_conn: impl AsyncRead + AsyncWrite + Unpin + Send,
+) -> Result<()> {
+    let pods = pod_api.clone();
+
+    return forward_connection(&pods, pod_name.as_str(), pod_port, client_conn).await;
+}
+
+async fn handle_connection(client_conn: TcpStream,
+                           acceptor: Option<TlsAcceptor>,
+                           pod_api: Api<Pod>,
+                           pod_name: String,
+                           pod_port: u16,
+) -> Result<()> {
+    match acceptor {
+        None => handle_client(pod_api, pod_name, pod_port, client_conn).await?,
+        Some(acc) => {
+            let stream = acc.accept(client_conn).await?;
+            handle_client(pod_api, pod_name, pod_port, stream).await?
+        }
+    };
+
+    return Ok(());
+}
+
 async fn forward_connection(
     pods: &Api<Pod>,
     pod_name: &str,
     port: u16,
-    mut client_conn: impl AsyncRead + AsyncWrite + Unpin,
+    mut client_conn: impl AsyncRead + AsyncWrite + Unpin + Send,
 ) -> Result<()> {
     let mut forwarder = pods.portforward(pod_name, &[port]).await?;
     let mut upstream_conn = forwarder.take_stream(port)

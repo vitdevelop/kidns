@@ -11,6 +11,8 @@ static K8S_POD_PORT: &str = "K8S_POD_PORT";
 static K8S_CONFIG: &str = "K8S_CONFIG";
 static PROXY_HOST: &str = "PROXY_HOST";
 static PROXY_PORT: &str = "PROXY_PORT";
+static PROXY_TLS_CERT: &str = "PROXY_TLS_CERT";
+static PROXY_TLS_KEY: &str = "PROXY_TLS_KEY";
 pub static LOG_LEVEL: &str = "LOG_LEVEL";
 
 pub struct Properties {
@@ -23,6 +25,8 @@ pub struct Properties {
     pub k8s_config: String,
     pub proxy_host: String,
     pub proxy_port: u16,
+    pub proxy_tls_cert: String,
+    pub proxy_tls_key: String,
     pub log_level: String,
 }
 
@@ -39,6 +43,8 @@ pub fn parse_properties() -> Result<Properties> {
         k8s_config: get_optional_env_var(K8S_CONFIG, "default")?,
         proxy_host: get_optional_env_var(PROXY_HOST, "0.0.0.0")?,
         proxy_port: get_optional_env_var(PROXY_PORT, "80")?.parse()?,
+        proxy_tls_cert: get_optional_env_var(PROXY_TLS_CERT, "")?,
+        proxy_tls_key: get_optional_env_var(PROXY_TLS_KEY, "")?,
         log_level: get_env_var(LOG_LEVEL)?,
     });
 }

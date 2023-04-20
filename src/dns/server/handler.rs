@@ -1,4 +1,5 @@
 use std::net::SocketAddr;
+use log::debug;
 use tokio::net::UdpSocket;
 use crate::dns::buffer::BytePacketBuffer;
 use crate::dns::header::{QueryType, ResultCode};
@@ -20,22 +21,22 @@ impl DnsServer {
         packet.header.response = true;
 
         if let Some(question) = request.questions.pop() {
-            println!("Received query: {:?}", question);
+            debug!("Received query: {:?}", question);
 
             if let Ok(result) = self.lookup(&question.name, question.qtype).await {
                 packet.questions.push(question);
                 packet.header.rescode = result.header.rescode;
 
                 for rec in result.answers {
-                    println!("Answer: {:#?}", rec);
+                    debug!("Answer: {:#?}", rec);
                     packet.answers.push(rec);
                 }
                 for rec in result.authorities {
-                    println!("Authority: {:#?}", rec);
+                    debug!("Authority: {:#?}", rec);
                     packet.authorities.push(rec);
                 }
                 for rec in result.resources {
-                    println!("Resource: {:#?}", rec);
+                    debug!("Resource: {:#?}", rec);
                     packet.resources.push(rec);
                 }
             } else {
