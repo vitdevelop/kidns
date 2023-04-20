@@ -1,51 +1,43 @@
-use std::fs::File;
-use std::io::Read;
+use log::error;
 use crate::config::logs::init_logs;
 use crate::config::properties::parse_properties;
-use crate::dns::buffer::BytePacketBuffer;
-use crate::dns::packet::DnsPacket;
-use crate::server::dns::DnsServer;
-use crate::util::Result;
+use crate::util::{Error, Result};
+use tokio::signal;
+use crate::dns::server::dns::DnsServer;
+use crate::proxy::server::proxy::Proxy;
 
 mod util;
 mod dns;
-mod server;
 mod config;
-
+mod proxy;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    init_logs();
     let props = parse_properties()?;
+    init_logs();
 
-    let dns = DnsServer::new(&props)?;
-    return dns.serve().await
-}
+    // run dns server
+    let dns = DnsServer::new(&props);
+    tokio::spawn(async {
+        if let Err(e) = dns.serve().await {
+            error!("Unable to serve dns server, error: {:?}", e)
+        }
+    });
 
-#[allow(dead_code)]
-fn read_file() -> Result<()> {
-    let mut file = File::open("testspace/response_packet.txt")?;
-    let mut buffer = BytePacketBuffer::new();
-    file.read(&mut buffer.buf)?;
+    // run proxy server
+    let proxy = Proxy::new(&props).await?;
+    tokio::spawn(async {
+        if let Err(e) = proxy.serve().await {
+            error!("Unable to serve proxy server, error: {:?}", e)
+        }
+    });
 
-    let packet = DnsPacket::from_buffer(&mut buffer)?;
-    println!("{:#?}", packet.header);
-
-    for q in packet.questions {
-        println!("{:#?}", q);
-    }
-
-    for rec in packet.answers {
-        println!("{:#?}", rec);
-    }
-
-    for rec in packet.authorities {
-        println!("{:#?}", rec);
-    }
-
-    for rec in packet.resources {
-        println!("{:#?}", rec);
-    }
-
-    return Ok(());
+    // wait for OS SIGTERM signal
+    return match signal::ctrl_c().await {
+        Ok(_) => { Ok(()) }
+        Err(e) => {
+            error!("Unable to handle shutdown signal, err: {:?}", e);
+            Err(Error::try_from(e)?)
+        }
+    };
 }

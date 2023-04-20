@@ -4,7 +4,7 @@ use crate::dns::buffer::BytePacketBuffer;
 use crate::dns::header::{QueryType, ResultCode};
 use crate::dns::packet::DnsPacket;
 use crate::dns::question::DnsQuestion;
-use crate::server::dns::DnsServer;
+use crate::dns::server::dns::DnsServer;
 use crate::util::Result;
 
 impl DnsServer {

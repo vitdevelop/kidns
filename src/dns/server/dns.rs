@@ -6,18 +6,18 @@ use crate::util::Result;
 
 #[derive(Debug, Clone)]
 pub struct DnsServer {
-    pub(in crate::server) public_dns_server: String,
-    pub(in crate::server) host: String,
-    pub(in crate::server) port: u16,
+    pub(crate) public_dns_server: String,
+    pub(crate) host: String,
+    pub(crate) port: u16,
 }
 
 impl DnsServer {
-    pub fn new(props: &Properties) -> Result<DnsServer> {
-        return Ok(DnsServer {
+    pub fn new(props: &Properties) -> DnsServer {
+        return DnsServer {
             public_dns_server: props.dns_server_public.clone(),
             host: props.dns_server_host.clone(),
             port: props.dns_server_port,
-        });
+        };
     }
 
     pub async fn serve(self) -> Result<()> {
