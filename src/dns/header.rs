@@ -27,18 +27,24 @@ impl ResultCode {
 
 #[derive(Eq, PartialEq, Debug, Copy, Clone, Hash)]
 pub enum QueryType {
-    // 0
     UNKNOWN(u16),
-    // 1
     A,
-    // 2
+    // 1
     NS,
-    // 5
+    // 2
     CNAME,
-    // 15
+    // 5
+    SOA,
+    // 6
     MX,
-    // 28
+    // 15
+    TXT,
+    // 16
     AAAA,
+    // 28
+    SRV,
+    // 33
+    OPT,   // 41
 }
 
 impl QueryType {
@@ -48,8 +54,12 @@ impl QueryType {
             QueryType::A => 1,
             QueryType::NS => 2,
             QueryType::CNAME => 5,
+            QueryType::SOA => 6,
             QueryType::MX => 15,
+            QueryType::TXT => 16,
             QueryType::AAAA => 28,
+            QueryType::SRV => 33,
+            QueryType::OPT => 41,
         };
     }
 
@@ -58,8 +68,12 @@ impl QueryType {
             1 => QueryType::A,
             2 => QueryType::NS,
             5 => QueryType::CNAME,
+            6 => QueryType::SOA,
             15 => QueryType::MX,
+            16 => QueryType::TXT,
             28 => QueryType::AAAA,
+            33 => QueryType::SRV,
+            41 => QueryType::OPT,
             _ => QueryType::UNKNOWN(num),
         };
     }

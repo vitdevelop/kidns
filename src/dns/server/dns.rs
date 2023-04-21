@@ -1,7 +1,9 @@
 use std::sync::Arc;
+use log::info;
 use tokio::net::UdpSocket;
 use crate::config::properties::Properties;
 use crate::dns::buffer::BytePacketBuffer;
+use crate::dns::server::cache::Cache;
 use crate::util::Result;
 
 #[derive(Debug, Clone)]
@@ -9,25 +11,30 @@ pub struct DnsServer {
     pub(crate) public_dns_server: String,
     pub(crate) host: String,
     pub(crate) port: u16,
+    pub(crate) cache: Cache,
 }
 
 impl DnsServer {
-    pub fn new(props: &Properties) -> DnsServer {
-        return DnsServer {
-            public_dns_server: props.dns_server_public.clone(),
-            host: props.dns_server_host.clone(),
+    pub async fn new(props: &Properties) -> Result<DnsServer> {
+        return Ok(DnsServer {
+            public_dns_server: props.dns_server_public.to_string(),
+            host: props.dns_server_host.to_string(),
             port: props.dns_server_port,
-        };
+            cache: Cache::new(props).await?,
+        });
     }
 
     pub async fn serve(self) -> Result<()> {
         let socket = Arc::new(UdpSocket::bind((self.host.as_str(), self.port)).await?);
         let server = Arc::new(self);
+
+        info!("DNS Server Initialized");
+
         loop {
             let mut req_buffer = BytePacketBuffer::new();
             let (_, src) = socket.recv_from(&mut req_buffer.buf).await?;
-            let dns_socket = socket.clone();
-            let dns_server = server.clone();
+            let dns_socket = socket.to_owned();
+            let dns_server = server.to_owned();
 
             tokio::spawn(async move {
                 match dns_server.handle_query(req_buffer, &dns_socket, src).await {

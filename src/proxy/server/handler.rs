@@ -3,7 +3,7 @@ use std::str::FromStr;
 use futures::TryStreamExt;
 use k8s_openapi::api::core::v1::Pod;
 use kube::{Api, ResourceExt};
-use log::error;
+use log::{error, info};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::{TcpListener, TcpStream};
 use tokio_rustls::TlsAcceptor;
@@ -27,13 +27,13 @@ impl Proxy {
 
             let server = TcpListenerStream::new(TcpListener::bind(addr).await?)
                 .try_for_each(|client_conn| async {
-                    let acceptor = acceptor.clone();
-                    let pod_api = pod_api.clone();
-                    let pod_name = pod_name.clone();
+                    let acceptor = acceptor.to_owned();
+                    let pod_api = pod_api.to_owned();
+                    let pod_name = pod_name.to_string();
                     let pod_port = k8s_client.pod_port;
 
                     tokio::spawn(async move {
-                        match handle_connection(client_conn, acceptor, pod_api, pod_name.clone(), pod_port).await {
+                        match handle_connection(client_conn, acceptor, pod_api, pod_name.to_string(), pod_port).await {
                             Ok(_) => {}
                             Err(e) => error!("Error on handle client, err: {:?}", e)
                         };
@@ -42,11 +42,14 @@ impl Proxy {
                     // keep the server running
                     Ok(())
                 });
+
+            info!("Proxy Server Initialized");
+
             server.await?;
 
             Ok(())
         } else {
-            Err(format!("Pods in namespace {} with label {} not found", k8s_client.namespace, k8s_client.pod_label).into())
+            Err(format!("Pods in namespace {} with label {} not found", k8s_client.pod_namespace, k8s_client.pod_label).into())
         };
     }
 }
@@ -57,7 +60,7 @@ async fn handle_client(
     pod_port: u16,
     client_conn: impl AsyncRead + AsyncWrite + Unpin + Send,
 ) -> Result<()> {
-    let pods = pod_api.clone();
+    let pods = pod_api.to_owned();
 
     return forward_connection(&pods, pod_name.as_str(), pod_port, client_conn).await;
 }
@@ -89,7 +92,8 @@ async fn forward_connection(
     let mut upstream_conn = forwarder.take_stream(port)
         .ok_or("Cannot get stream from port forward")?;
 
-    tokio::io::copy_bidirectional(&mut client_conn, &mut upstream_conn).await?;
+    // tokio::io::copy_bidirectional(&mut client_conn, &mut upstream_conn).await?;
+    tokio::io::copy_bidirectional(&mut upstream_conn, &mut client_conn).await?;
 
     drop(upstream_conn);
     forwarder.join().await?;

@@ -3,6 +3,7 @@ use log::debug;
 use tokio::net::UdpSocket;
 use crate::dns::buffer::BytePacketBuffer;
 use crate::dns::header::{QueryType, ResultCode};
+use crate::dns::header::ResultCode::NOERROR;
 use crate::dns::packet::DnsPacket;
 use crate::dns::question::DnsQuestion;
 use crate::dns::server::dns::DnsServer;
@@ -23,7 +24,14 @@ impl DnsServer {
         if let Some(question) = request.questions.pop() {
             debug!("Received query: {:?}", question);
 
-            if let Ok(result) = self.lookup(&question.name, question.qtype).await {
+            let question_name = question.name.to_string();
+            let question_type = question.qtype;
+
+            if let Some(dns_record) = self.cache.domains.read().await.get(&question.name) {
+                packet.questions.push(question.to_owned());
+                packet.header.rescode = NOERROR;
+                packet.answers.push(dns_record.to_owned())
+            } else if let Ok(result) = self.lookup(question_name.as_str(), question_type).await {
                 packet.questions.push(question);
                 packet.header.rescode = result.header.rescode;
 
@@ -44,6 +52,14 @@ impl DnsServer {
             }
         } else {
             packet.header.rescode = ResultCode::FORMERR;
+        }
+
+        // save in cache
+        if let Some(answer) = packet.answers.first() {
+            if let Some(question) = packet.questions.first() {
+                let mut domains = self.cache.domains.write().await;
+                domains.insert(question.name.to_string(), answer.to_owned());
+            }
         }
 
         let mut res_buffer = BytePacketBuffer::new();

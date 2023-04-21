@@ -10,27 +10,32 @@ mod util;
 mod dns;
 mod config;
 mod proxy;
+mod k8s;
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let props = parse_properties()?;
     init_logs();
 
-    // run dns server
-    let dns = DnsServer::new(&props);
-    tokio::spawn(async {
-        if let Err(e) = dns.serve().await {
-            error!("Unable to serve dns server, error: {:?}", e)
-        }
-    });
+    if props.dns_server_host.ne("") {
+        // run dns server
+        let dns = DnsServer::new(&props).await?;
+        tokio::spawn(async {
+            if let Err(e) = dns.serve().await {
+                error!("Unable to serve dns server, error: {:?}", e)
+            }
+        });
+    }
 
-    // run proxy server
-    let proxy = Proxy::new(&props).await?;
-    tokio::spawn(async {
-        if let Err(e) = proxy.serve().await {
-            error!("Unable to serve proxy server, error: {:?}", e)
-        }
-    });
+    if props.proxy_host.ne("") {
+        // run proxy server
+        let proxy = Proxy::new(&props).await?;
+        tokio::spawn(async {
+            if let Err(e) = proxy.serve().await {
+                error!("Unable to serve proxy server, error: {:?}", e)
+            }
+        });
+    }
 
     // wait for OS SIGTERM signal
     return match signal::ctrl_c().await {
