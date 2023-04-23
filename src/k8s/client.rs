@@ -2,9 +2,7 @@ use k8s_openapi::api::core::v1::Pod;
 use k8s_openapi::api::networking::v1::Ingress;
 use kube::{Api, Config};
 use kube::api::{ListParams, ObjectList};
-use kube::client::ConfigExt;
 use kube::config::{Kubeconfig, KubeConfigOptions};
-use tower::ServiceBuilder;
 use crate::config::properties::Properties;
 use crate::util::Result;
 
@@ -27,13 +25,7 @@ impl K8sClient {
             let kube_options = KubeConfigOptions::default();
             let config = Config::from_custom_kubeconfig(kube_config, &kube_options).await?;
 
-            let https = config.rustls_https_connector()?;
-            let service = ServiceBuilder::new()
-                .layer(config.base_uri_layer())
-                .service(hyper::Client::builder().build(https));
-            kube::Client::new(service, config.default_namespace)
-
-            // kube::Client::try_from(config)?
+            kube::Client::try_from(config)?
         };
 
         return Ok(K8sClient {
