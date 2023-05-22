@@ -3,7 +3,7 @@ use std::str::FromStr;
 use futures::TryStreamExt;
 use k8s_openapi::api::core::v1::Pod;
 use kube::{Api, ResourceExt};
-use log::{error, info};
+use log::{debug, error, info};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::{TcpListener, TcpStream};
 use tokio_rustls::TlsAcceptor;
@@ -24,6 +24,7 @@ impl Proxy {
         return if let Some(pod) = pod_list.items.pop() {
             let addr = SocketAddr::from((Ipv4Addr::from_str(&self.host)?, self.port));
             let pod_name = pod.name_any();
+            debug!("Connect to {}", pod_name);
 
             let server = TcpListenerStream::new(TcpListener::bind(addr).await?)
                 .try_for_each(|client_conn| async {

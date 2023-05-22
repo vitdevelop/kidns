@@ -3,7 +3,7 @@ use std::net::Ipv4Addr;
 use std::path::Path;
 use std::str::FromStr;
 use std::sync::Arc;
-use log::debug;
+use log::info;
 use tokio::fs::File;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::sync::RwLock;
@@ -55,7 +55,7 @@ async fn load_k8s_ingress_cache(k8s_client: &K8sClient) -> Result<HashMap<String
                 ttl: TransientTtl(300),
             });
         })
-        .inspect(|host| debug!("Ingress: {}", host.0))
+        .inspect(|host| info!("Ingress: {}", host.0))
         .collect());
 }
 
