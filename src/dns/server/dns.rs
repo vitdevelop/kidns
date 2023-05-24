@@ -1,10 +1,10 @@
-use std::sync::Arc;
-use log::info;
-use tokio::net::UdpSocket;
 use crate::config::properties::Properties;
 use crate::dns::buffer::BytePacketBuffer;
 use crate::dns::server::cache::Cache;
 use crate::util::Result;
+use log::info;
+use std::sync::Arc;
+use tokio::net::UdpSocket;
 
 #[derive(Debug, Clone)]
 pub struct DnsServer {
@@ -39,7 +39,8 @@ impl DnsServer {
             tokio::spawn(async move {
                 match dns_server.handle_query(req_buffer, &dns_socket, src).await {
                     Ok(_) => {}
-                    Err(e) => eprintln!("An error occurred: {}", e),
+                    // Err(e) => error!("An error occurred: {}", e),
+                    Err(_) => {} //suppress temporary errors
                 }
             });
         }
