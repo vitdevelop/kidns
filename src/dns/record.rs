@@ -1,11 +1,7 @@
-use std::net::{Ipv4Addr, Ipv6Addr};
 use crate::dns::buffer::BytePacketBuffer;
 use crate::dns::header::QueryType;
 use crate::util::Result;
-
-
-#[derive(Copy, Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Hash)]
-pub struct TransientTtl(pub u32);
+use std::net::{Ipv4Addr, Ipv6Addr};
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash, Ord, PartialOrd)]
 #[allow(dead_code)]
@@ -14,25 +10,25 @@ pub enum DnsRecord {
         domain: String,
         qtype: u16,
         data_len: u16,
-        ttl: TransientTtl,
+        ttl: u32,
     },
     // 0
     A {
         domain: String,
         addr: Ipv4Addr,
-        ttl: TransientTtl,
+        ttl: u32,
     },
     // 1
     NS {
         domain: String,
         host: String,
-        ttl: TransientTtl,
+        ttl: u32,
     },
     // 2
     CNAME {
         domain: String,
         host: String,
-        ttl: TransientTtl,
+        ttl: u32,
     },
     // 5
     SOA {
@@ -44,26 +40,32 @@ pub enum DnsRecord {
         retry: u32,
         expire: u32,
         minimum: u32,
-        ttl: TransientTtl,
+        ttl: u32,
     },
     // 6
     MX {
         domain: String,
         priority: u16,
         host: String,
-        ttl: TransientTtl,
+        ttl: u32,
+    },
+    // 12
+    PTR {
+        domain: String,
+        host: String,
+        ttl: u32,
     },
     // 15
     TXT {
         domain: String,
         data: String,
-        ttl: TransientTtl,
+        ttl: u32,
     },
     // 16
     AAAA {
         domain: String,
         addr: Ipv6Addr,
-        ttl: TransientTtl,
+        ttl: u32,
     },
     // 28
     SRV {
@@ -72,7 +74,7 @@ pub enum DnsRecord {
         weight: u16,
         port: u16,
         host: String,
-        ttl: TransientTtl,
+        ttl: u32,
     },
     // 33
     OPT {
@@ -101,7 +103,7 @@ impl DnsRecord {
                     domain,
                     qtype: qtype_num,
                     data_len,
-                    ttl: TransientTtl(ttl),
+                    ttl,
                 })
             }
             QueryType::A => {
@@ -112,11 +114,7 @@ impl DnsRecord {
                     ((raw_addr >> 8) & 0xFF) as u8,
                     ((raw_addr) & 0xFF) as u8,
                 );
-                Ok(DnsRecord::A {
-                    domain,
-                    addr,
-                    ttl: TransientTtl(ttl),
-                })
+                Ok(DnsRecord::A { domain, addr, ttl })
             }
             QueryType::NS => {
                 let mut ns = String::new();
@@ -125,17 +123,17 @@ impl DnsRecord {
                 Ok(DnsRecord::NS {
                     domain,
                     host: ns,
-                    ttl: TransientTtl(ttl),
+                    ttl,
                 })
             }
-            QueryType::CNAME => {
+            QueryType::PTR | QueryType::CNAME => {
                 let mut cname = String::new();
                 buffer.read_qname(&mut cname)?;
 
                 Ok(DnsRecord::CNAME {
                     domain,
                     host: cname,
-                    ttl: TransientTtl(ttl),
+                    ttl,
                 })
             }
             QueryType::MX => {
@@ -147,7 +145,7 @@ impl DnsRecord {
                     domain,
                     priority,
                     host: mx,
-                    ttl: TransientTtl(ttl),
+                    ttl,
                 })
             }
             QueryType::AAAA => {
@@ -167,11 +165,7 @@ impl DnsRecord {
                     (raw_addr4 & 0xFFFF) as u16,
                 );
 
-                Ok(DnsRecord::AAAA {
-                    domain,
-                    addr,
-                    ttl: TransientTtl(ttl),
-                })
+                Ok(DnsRecord::AAAA { domain, addr, ttl })
             }
             QueryType::SOA => {
                 let mut m_name = String::new();
@@ -195,7 +189,7 @@ impl DnsRecord {
                     retry,
                     expire,
                     minimum,
-                    ttl: TransientTtl(ttl),
+                    ttl,
                 })
             }
             QueryType::TXT => {
@@ -211,7 +205,7 @@ impl DnsRecord {
                 Ok(DnsRecord::TXT {
                     domain,
                     data: txt,
-                    ttl: TransientTtl(ttl),
+                    ttl,
                 })
             }
             QueryType::SRV => {
@@ -228,7 +222,7 @@ impl DnsRecord {
                     weight,
                     port,
                     host: srv,
-                    ttl: TransientTtl(ttl),
+                    ttl,
                 })
             }
             QueryType::OPT => {
@@ -259,7 +253,7 @@ impl DnsRecord {
             DnsRecord::A {
                 ref domain,
                 ref addr,
-                ttl: TransientTtl(ttl),
+                ttl,
             } => {
                 buffer.write_qname(domain)?;
                 buffer.write_u16(QueryType::A.to_num())?;
@@ -276,7 +270,7 @@ impl DnsRecord {
             DnsRecord::NS {
                 ref domain,
                 ref host,
-                ttl: TransientTtl(ttl),
+                ttl,
             } => {
                 buffer.write_qname(domain)?;
                 buffer.write_u16(QueryType::NS.to_num())?;
@@ -291,10 +285,15 @@ impl DnsRecord {
                 let size = buffer.pos() - (pos + 2);
                 buffer.set_u16(pos, size as u16)?;
             }
-            DnsRecord::CNAME {
+            DnsRecord::PTR {
                 ref domain,
                 ref host,
-                ttl: TransientTtl(ttl),
+                ttl,
+            }
+            | DnsRecord::CNAME {
+                ref domain,
+                ref host,
+                ttl,
             } => {
                 buffer.write_qname(domain)?;
                 buffer.write_u16(QueryType::CNAME.to_num())?;
@@ -313,7 +312,7 @@ impl DnsRecord {
                 ref domain,
                 priority,
                 ref host,
-                ttl: TransientTtl(ttl),
+                ttl,
             } => {
                 buffer.write_qname(domain)?;
                 buffer.write_u16(QueryType::MX.to_num())?;
@@ -332,7 +331,7 @@ impl DnsRecord {
             DnsRecord::AAAA {
                 ref domain,
                 ref addr,
-                ttl: TransientTtl(ttl),
+                ttl,
             } => {
                 buffer.write_qname(domain)?;
                 buffer.write_u16(QueryType::AAAA.to_num())?;
@@ -353,7 +352,7 @@ impl DnsRecord {
                 retry,
                 expire,
                 minimum,
-                ttl: TransientTtl(ttl),
+                ttl,
             } => {
                 buffer.write_qname(domain)?;
                 buffer.write_u16(QueryType::SOA.to_num())?;
@@ -377,7 +376,7 @@ impl DnsRecord {
             DnsRecord::TXT {
                 ref domain,
                 ref data,
-                ttl: TransientTtl(ttl),
+                ttl,
             } => {
                 buffer.write_qname(domain)?;
                 buffer.write_u16(QueryType::TXT.to_num())?;
@@ -395,7 +394,7 @@ impl DnsRecord {
                 weight,
                 port,
                 ref host,
-                ttl: TransientTtl(ttl),
+                ttl,
             } => {
                 buffer.write_qname(domain)?;
                 buffer.write_u16(QueryType::SRV.to_num())?;

@@ -30,7 +30,7 @@ impl DnsServer {
             if let Some(dns_record) = self.cache.domains.read().await.get(&question.name) {
                 packet.questions.push(question.to_owned());
                 packet.header.rescode = NOERROR;
-                packet.answers.push(dns_record.to_owned())
+                packet.answers = dns_record.to_owned();
             } else if let Ok(result) = self.lookup(question_name.as_str(), question_type).await {
                 packet.questions.push(question);
                 packet.header.rescode = result.header.rescode;
@@ -55,10 +55,10 @@ impl DnsServer {
         }
 
         // save in cache
-        if let Some(answer) = packet.answers.first() {
+        if packet.answers.len() > 0 {
             if let Some(question) = packet.questions.first() {
                 let mut domains = self.cache.domains.write().await;
-                domains.insert(question.name.to_string(), answer.to_owned());
+                domains.insert(question.name.to_string(), packet.answers.to_owned());
             }
         }
 

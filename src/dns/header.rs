@@ -24,26 +24,18 @@ impl ResultCode {
     }
 }
 
-
 #[derive(Eq, PartialEq, Debug, Copy, Clone, Hash)]
 pub enum QueryType {
     UNKNOWN(u16),
-    A,
-    // 1
-    NS,
-    // 2
-    CNAME,
-    // 5
-    SOA,
-    // 6
-    MX,
-    // 15
-    TXT,
-    // 16
-    AAAA,
-    // 28
-    SRV,
-    // 33
+    A,     // 1
+    NS,    // 2
+    CNAME, // 5
+    SOA,   // 6
+    PTR,   // 12
+    MX,    // 15
+    TXT,   // 16
+    AAAA,  // 28
+    SRV,   // 33
     OPT,   // 41
 }
 
@@ -55,6 +47,7 @@ impl QueryType {
             QueryType::NS => 2,
             QueryType::CNAME => 5,
             QueryType::SOA => 6,
+            QueryType::PTR => 12,
             QueryType::MX => 15,
             QueryType::TXT => 16,
             QueryType::AAAA => 28,
@@ -69,6 +62,7 @@ impl QueryType {
             2 => QueryType::NS,
             5 => QueryType::CNAME,
             6 => QueryType::SOA,
+            12 => QueryType::PTR,
             15 => QueryType::MX,
             16 => QueryType::TXT,
             28 => QueryType::AAAA,
@@ -78,7 +72,6 @@ impl QueryType {
         };
     }
 }
-
 
 #[derive(Clone, Debug)]
 pub struct DnsHeader {
@@ -160,7 +153,7 @@ impl DnsHeader {
                 | ((self.truncated_message as u8) << 1)
                 | ((self.authoritative_answer as u8) << 2)
                 | (self.op_code << 3)
-                | ((self.response as u8) << 7)
+                | ((self.response as u8) << 7),
         )?;
 
         buffer.write_u8(
@@ -168,7 +161,7 @@ impl DnsHeader {
                 | ((self.checking_disabled as u8) << 4)
                 | ((self.authed_data as u8) << 5)
                 | ((self.z as u8) << 6)
-                | ((self.recursion_available as u8) << 7)
+                | ((self.recursion_available as u8) << 7),
         )?;
 
         buffer.write_u16(self.questions)?;

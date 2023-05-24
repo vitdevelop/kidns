@@ -51,18 +51,14 @@ impl BytePacketBuffer {
     }
 
     pub fn read_u16(&mut self) -> Result<u16> {
-        return Ok(
-            ((self.read()? as u16) << 8) | (self.read()? as u16)
-        );
+        return Ok(((self.read()? as u16) << 8) | (self.read()? as u16));
     }
 
     pub fn read_u32(&mut self) -> Result<u32> {
-        return Ok(
-            ((self.read()? as u32) << 24)
-                | ((self.read()? as u32) << 16)
-                | ((self.read()? as u32) << 8)
-                | (self.read()? as u32)
-        );
+        return Ok(((self.read()? as u32) << 24)
+            | ((self.read()? as u32) << 16)
+            | ((self.read()? as u32) << 8)
+            | (self.read()? as u32));
     }
 
     pub fn read_qname(&mut self, outstr: &mut String) -> Result<()> {
@@ -152,7 +148,8 @@ impl BytePacketBuffer {
     pub fn write_qname(&mut self, qname: &str) -> Result<()> {
         for label in qname.split('.') {
             let len = label.len();
-            if len > 0x3F { // 63
+            if len > 0x3F {
+                // 63
                 return Err("Single label exceeds 63 characters of length".into());
             }
 
@@ -175,7 +172,7 @@ impl BytePacketBuffer {
 
     pub fn set_u16(&mut self, pos: usize, val: u16) -> Result<()> {
         self.set(pos, (val >> 8) as u8)?;
-        self.set(pos, (val & 0xFF) as u8)?;
+        self.set(pos + 1, (val & 0xFF) as u8)?;
 
         return Ok(());
     }
