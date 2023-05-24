@@ -18,19 +18,22 @@ impl DnsQuestion {
 
     pub fn read(&mut self, buffer: &mut BytePacketBuffer) -> Result<()> {
         buffer.read_qname(&mut self.name)?;
-        self.qtype = QueryType::from_num(buffer.read_u16()?);
-        let _ = buffer.read_u16()?; // class
+        self.qtype = QueryType::from_num(buffer.read_u16());
+        let _ = buffer.read_u16(); // class
 
         return Ok(());
     }
 
-    pub fn write(&self, buffer: &mut BytePacketBuffer) -> Result<()> {
-        buffer.write_qname(&self.name)?;
+    pub fn write(&self, buffer: &mut BytePacketBuffer) -> Result<usize> {
+        let mut size = 0usize;
+        size += buffer.write_qname(&self.name)?;
 
         let typenum = self.qtype.to_num();
-        buffer.write_u16(typenum)?;
-        buffer.write_u16(1)?;
+        buffer.write_u16(typenum);
+        buffer.write_u16(1);
 
-        return Ok(());
+        size += 4;
+
+        return Ok(size);
     }
 }

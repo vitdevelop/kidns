@@ -1,5 +1,4 @@
 use crate::dns::buffer::BytePacketBuffer;
-use crate::util::Result;
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum ResultCode {
@@ -119,10 +118,10 @@ impl DnsHeader {
         };
     }
 
-    pub fn read(&mut self, buffer: &mut BytePacketBuffer) -> Result<()> {
-        self.id = buffer.read_u16()?;
+    pub fn read(&mut self, buffer: &mut BytePacketBuffer) {
+        self.id = buffer.read_u16();
 
-        let flags = buffer.read_u16()?;
+        let flags = buffer.read_u16();
         let a = (flags >> 8) as u8;
         let b = (flags & 0xFF) as u8;
         self.recursion_desired = (a & (1 << 0)) > 0;
@@ -137,16 +136,14 @@ impl DnsHeader {
         self.z = (b & (1 << 6)) > 0;
         self.recursion_available = (b & (1 << 7)) > 0;
 
-        self.questions = buffer.read_u16()?;
-        self.answers = buffer.read_u16()?;
-        self.authoritative_entries = buffer.read_u16()?;
-        self.resource_entries = buffer.read_u16()?;
-
-        return Ok(());
+        self.questions = buffer.read_u16();
+        self.answers = buffer.read_u16();
+        self.authoritative_entries = buffer.read_u16();
+        self.resource_entries = buffer.read_u16();
     }
 
-    pub fn write(&self, buffer: &mut BytePacketBuffer) -> Result<()> {
-        buffer.write_u16(self.id)?;
+    pub fn write(&self, buffer: &mut BytePacketBuffer) -> usize {
+        buffer.write_u16(self.id);
 
         buffer.write_u8(
             (self.recursion_desired as u8)
@@ -154,7 +151,7 @@ impl DnsHeader {
                 | ((self.authoritative_answer as u8) << 2)
                 | (self.op_code << 3)
                 | ((self.response as u8) << 7),
-        )?;
+        );
 
         buffer.write_u8(
             (self.rescode as u8)
@@ -162,13 +159,22 @@ impl DnsHeader {
                 | ((self.authed_data as u8) << 5)
                 | ((self.z as u8) << 6)
                 | ((self.recursion_available as u8) << 7),
-        )?;
+        );
 
-        buffer.write_u16(self.questions)?;
-        buffer.write_u16(self.answers)?;
-        buffer.write_u16(self.authoritative_entries)?;
-        buffer.write_u16(self.resource_entries)?;
+        buffer.write_u16(self.questions);
+        buffer.write_u16(self.answers);
+        buffer.write_u16(self.authoritative_entries);
+        buffer.write_u16(self.resource_entries);
 
-        return Ok(());
+        let mut size = 0usize;
+        size += 2;
+        size += 1;
+        size += 1;
+        size += 2;
+        size += 2;
+        size += 2;
+        size += 2;
+
+        return size;
     }
 }

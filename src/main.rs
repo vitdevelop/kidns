@@ -1,16 +1,16 @@
-use log::error;
 use crate::config::logs::init_logs;
 use crate::config::properties::parse_properties;
-use crate::util::{Error, Result};
-use tokio::signal;
 use crate::dns::server::dns::DnsServer;
 use crate::proxy::server::proxy::Proxy;
+use crate::util::{Error, Result};
+use log::error;
+use tokio::signal;
 
-mod util;
-mod dns;
 mod config;
-mod proxy;
+mod dns;
 mod k8s;
+mod proxy;
+mod util;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -39,7 +39,7 @@ async fn main() -> Result<()> {
 
     // wait for OS SIGTERM signal
     return match signal::ctrl_c().await {
-        Ok(_) => { Ok(()) }
+        Ok(_) => Ok(()),
         Err(e) => {
             error!("Unable to handle shutdown signal, err: {:?}", e);
             Err(Error::try_from(e)?)

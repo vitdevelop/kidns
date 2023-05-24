@@ -73,7 +73,7 @@ impl DnsServer {
         packet.write(&mut res_buffer)?;
 
         let len = res_buffer.pos();
-        let data = res_buffer.get_range(0, len)?;
+        let data = res_buffer.get_range(0, len);
 
         server_socket.send_to(data, client_socket).await?;
 
