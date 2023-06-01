@@ -1,4 +1,5 @@
 ## KIDNS - Kubernetes Ingress DNS
+[![Rust](https://github.com/vitdevelop/kidns/actions/workflows/rust.yml/badge.svg?branch=master)](https://github.com/vitdevelop/kidns/actions/workflows/rust.yml)
 
 #### Kidns serve as local dns server with ingress urls from kubernetes and proxy traffic to ingress pods(nginx).
 
