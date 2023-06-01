@@ -20,3 +20,6 @@ tower = { version = "0.4.13", features = ["limit"] }
 tower-http = { version = "0.4.0", features = ["trace", "decompression-gzip"] }
 hyper = { version = "0.14.13", features = ["client", "http1", "stream", "tcp"] }
 chrono = "0.4"
+# 'vendored' need to compile for cross platform
+# otherwise -> Could not find directory of OpenSSL installation
+openssl = { version = "0.10.53", features = ["vendored"]}
