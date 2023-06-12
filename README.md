@@ -56,3 +56,12 @@ LOG_LEVEL=info
 2) Edit `service-account.yaml` file and replace with your config.
 
 ###### It will generate `config` file without cluster. NOTICE: Add your cluster to it.
+
+#### If need to run through `docker compose`
+1) Edit `docker-compose.yaml` file, volumes section:
+```yaml
+volumes:
+  - "<path-to-config(kubernetes config yaml file)>:/kidns/config:ro"
+  - "<path-to-config.env>:/kidns/config.env:ro"
+```
+2) Run `docker compose up`
