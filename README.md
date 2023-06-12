@@ -16,7 +16,7 @@
 ### Usage:
 #### Kidns is configured through `config.env` file:
 
-```
+```dotenv
 # by default will be '8.8.8.8' if not set
 DNS_SERVER_PUBLIC=8.8.8.8
 DNS_SERVER_PORT=2053
