@@ -5,7 +5,7 @@ use crate::dns::packet::DnsPacket;
 use crate::dns::question::DnsQuestion;
 use crate::dns::server::dns::DnsServer;
 use crate::util::Result;
-use log::debug;
+use log::{debug, warn};
 use std::net::SocketAddr;
 use tokio::net::UdpSocket;
 
@@ -36,6 +36,9 @@ impl DnsServer {
                 packet.header.rescode = NOERROR;
                 packet.answers = dns_record.records;
             } else if let Ok(result) = self.lookup(question_name.as_str(), question_type).await {
+                if result.header.truncated_message {
+                    warn!("Request to {} was truncated", question_name)
+                }
                 need_cache = true;
 
                 packet.questions.push(question);

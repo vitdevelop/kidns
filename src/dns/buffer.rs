@@ -1,7 +1,8 @@
 use crate::util::Result;
 
-pub const PACKET_SIZE: usize = 508; // 576 IPv4 (every host must be able to reassemble) - 60 IPv4 header - 8 UDP header
-// pub const ADDITIONAL_PACKET_SIZE: usize = 1432; // default MTU(on modern routers) 1500 - 60 IPv4 header - 8 UDP header
+pub const PACKET_SIZE: usize = 1432; // for IPv4 is enough
+// pub const PACKET_SIZE: usize = 508; // 576 IPv4 (every host must be able to reassemble) - 60 IPv4 header - 8 UDP header
+
 pub struct BytePacketBuffer {
     pub buf: [u8; PACKET_SIZE],
     pub pos: usize,
