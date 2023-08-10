@@ -1,8 +1,7 @@
 use crate::dns::buffer::BytePacketBuffer;
 use crate::dns::header::ResultCode::NOERROR;
-use crate::dns::header::{QueryType, ResultCode};
+use crate::dns::header::ResultCode;
 use crate::dns::packet::DnsPacket;
-use crate::dns::question::DnsQuestion;
 use crate::dns::server::dns::DnsServer;
 use crate::util::Result;
 use log::{debug, warn};
@@ -16,7 +15,7 @@ impl DnsServer {
         server_socket: &UdpSocket,
         client_socket: SocketAddr,
     ) -> Result<()> {
-        let mut request = DnsPacket::from_buffer(&mut req_buffer)?;
+        let request = DnsPacket::from_buffer(&mut req_buffer)?;
 
         let mut packet = DnsPacket::new();
         packet.header.id = request.header.id;
@@ -24,50 +23,25 @@ impl DnsServer {
         packet.header.recursion_available = true;
         packet.header.response = true;
 
-        if let Some(question) = request.questions.pop() {
+        if let Some(question) = request.questions.last() {
             debug!("Received query: {:?}", question);
 
             let question_name = question.name.to_string();
-            let question_type = question.qtype;
-            let mut need_cache = false;
 
             if let Some(dns_record) = self.cache.find(&question.name).await {
                 packet.questions.push(question.to_owned());
                 packet.header.rescode = NOERROR;
                 packet.answers = dns_record.records;
-            } else if let Ok(result) = self.lookup(question_name.as_str(), question_type).await {
+            } else if let Ok(result) = self.lookup(request).await {
                 if result.header.truncated_message {
                     warn!("Request to {} was truncated", question_name)
                 }
-                need_cache = true;
 
-                packet.questions.push(question);
-                packet.header.rescode = result.header.rescode;
-
-                for rec in result.answers {
-                    debug!("Answer: {:#?}", rec);
-                    packet.answers.push(rec);
-                }
-                for rec in result.authorities {
-                    debug!("Authority: {:#?}", rec);
-                    packet.authorities.push(rec);
-                }
-                for rec in result.resources {
-                    debug!("Resource: {:#?}", rec);
-                    packet.resources.push(rec);
-                }
+                packet = result;
             } else {
                 packet.header.rescode = ResultCode::SERVFAIL;
             }
 
-            // save in cache
-            if need_cache && packet.answers.len() > 0 {
-                if let Some(question) = packet.questions.first() {
-                    self.cache
-                        .save(question.name.as_str(), &packet.answers)
-                        .await?;
-                }
-            }
         } else {
             packet.header.rescode = ResultCode::FORMERR;
         }
@@ -83,19 +57,13 @@ impl DnsServer {
         return Ok(());
     }
 
-    pub async fn lookup(&self, qname: &str, qtype: QueryType) -> Result<DnsPacket> {
+    pub async fn lookup(&self, mut packet: DnsPacket) -> Result<DnsPacket> {
         let server = (self.public_dns_server.as_str(), 53);
 
         let socket = UdpSocket::bind(("0.0.0.0", 0)).await?;
 
-        let mut packet = DnsPacket::new();
-
-        packet.header.id = 1234;
-        packet.header.questions = 1;
-        packet.header.recursion_desired = true;
-        packet
-            .questions
-            .push(DnsQuestion::new(qname.to_string(), qtype));
+        packet.header.resource_entries = 0;
+        packet.resources.clear();
 
         let mut req_buffer = BytePacketBuffer::new();
         packet.write(&mut req_buffer)?;

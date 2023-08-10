@@ -9,3 +9,4 @@ services:
     volumes:
       - "./config:/kidns/config:ro"
       - "./config.env:/kidns/config.env:ro"
+      - "./local_cache.conf:/kidns/local_cache.conf:ro"

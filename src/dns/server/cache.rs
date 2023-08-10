@@ -61,44 +61,6 @@ impl Cache {
         }
         return Some(record)
     }
-
-    pub async fn save(&self, domain: &str, dns_records: &Vec<DnsRecord>) -> Result<()> {
-        let expires = 'expire: {
-            let mut biggest_ttl = 0u32;
-            for record in dns_records {
-                let ttl = match record {
-                    DnsRecord::UNKNOWN { .. } => 0,
-                    DnsRecord::A { ttl, .. } => *ttl,
-                    DnsRecord::NS { ttl, .. } => *ttl,
-                    DnsRecord::CNAME { ttl, .. } => *ttl,
-                    DnsRecord::SOA { ttl, .. } => *ttl,
-                    DnsRecord::MX { ttl, .. } => *ttl,
-                    DnsRecord::PTR { ttl, .. } => *ttl,
-                    DnsRecord::TXT { ttl, .. } => *ttl,
-                    DnsRecord::AAAA { ttl, .. } => *ttl,
-                    DnsRecord::SRV { ttl, .. } => *ttl,
-                    DnsRecord::OPT { .. } => 0,
-                };
-
-                if biggest_ttl < ttl {
-                    biggest_ttl = ttl;
-                }
-            }
-
-            break 'expire Utc::now() + Duration::seconds(biggest_ttl as i64);
-        };
-
-        let mut domains = self.domains.write().await;
-        domains.insert(
-            domain.to_string(),
-            CacheRecord {
-                records: dns_records.to_owned(),
-                expires,
-            },
-        );
-
-        Ok(())
-    }
 }
 
 // if dns is set as default, need init cache after dns is up, otherwise k8s client won't reach api
