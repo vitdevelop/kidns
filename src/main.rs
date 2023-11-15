@@ -12,7 +12,7 @@ mod k8s;
 mod proxy;
 mod util;
 
-#[tokio::main]
+#[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
     let props = parse_properties()?;
     init_logs();
