@@ -15,14 +15,14 @@ k8s:
   # default(look to ~/.kube/config) or path to yaml file
   # if not set or empty by default is set 'default'
   # if set file in bin directory no need full path
-  config: config
-  pod:
-    # namespace where is located nginx pods
-    namespace: edge-services
-    label: app.kubernetes.io/name=ingress-nginx
-    port: 443
-  # namespace where need to load ingress urls, ex. your app
-  ingress-namespace: app-namespace
+  - config: config
+    pod:
+      # namespace where is located nginx pods
+      namespace: edge-services
+      label: app.kubernetes.io/name=ingress-nginx
+      port: 443
+    # namespace where need to load ingress urls, ex. your app
+    ingress-namespace: app-namespace
 proxy:
   # if empty, proxy disabled
   host: 0.0.0.0

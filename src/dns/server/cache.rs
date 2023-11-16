@@ -28,13 +28,20 @@ pub struct Cache {
 
 impl Cache {
     pub async fn new(props: &Properties) -> Result<Cache> {
-        let k8s_client = K8sClient::new(props).await?;
+        let k8s_clients = {
+            let mut clients = Vec::default();
+            for props in &props.k8s {
+                let client = K8sClient::new(props).await?;
+                clients.push(client);
+            }
+            clients
+        };
 
         let mut cache: HashMap<String, CacheRecord> = HashMap::new();
 
         for cache_type in &props.dns.cache {
             if cache_type.eq_ignore_ascii_case("k8s") {
-                let k8s_cache = load_k8s_ingress_cache(&k8s_client).await?;
+                let k8s_cache = load_k8s_ingress_cache(&k8s_clients).await?;
                 cache = cache.into_iter().chain(k8s_cache).collect();
             } else {
                 let file_cache = load_local_cache(&cache_type).await?;
@@ -50,39 +57,32 @@ impl Cache {
     pub async fn find(&self, domain: &str) -> Option<CacheRecord> {
         let record = match self.domains.read().await.get(domain) {
             None => return None,
-            Some(record) => {
-               record.to_owned()
-            }
+            Some(record) => record.to_owned(),
         };
 
         if record.expires < Utc::now() {
             self.domains.write().await.remove(domain);
-            return None
+            return None;
         }
-        return Some(record)
+        return Some(record);
     }
 }
 
-// if dns is set as default, need init cache after dns is up, otherwise k8s client won't reach api
-async fn load_k8s_ingress_cache(k8s_client: &K8sClient) -> Result<HashMap<String, CacheRecord>> {
-    return Ok(k8s_client
-        .ingress_list()
-        .await?
-        .iter_mut()
-        .map(|ingress| ingress.spec.to_owned())
-        .filter(|ingress| ingress.is_some())
-        .map(|ingress| ingress.unwrap())
-        .filter(|spec| spec.rules.is_some())
-        .flat_map(|spec| spec.rules.unwrap())
-        .filter(|rule| rule.host.is_some())
-        .map(|rule| rule.host.unwrap())
+async fn load_k8s_ingress_cache(k8s_clients: &Vec<K8sClient>) -> Result<HashMap<String, CacheRecord>> {
+    let mut urls = Vec::default();
+    for client in k8s_clients {
+        urls.extend(client.ingress_urls().await?);
+    }
+    return Ok(
+        urls
+        .iter()
         .map(|host| {
             return (
                 host.to_string(),
                 CacheRecord {
                     expires: Utc::now().add(Duration::days(365)),
                     records: vec![DnsRecord::A {
-                        domain: host,
+                        domain: host.to_owned(),
                         addr: Ipv4Addr::new(127, 0, 0, 1),
                         ttl: 300u32,
                     }],

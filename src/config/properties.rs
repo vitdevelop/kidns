@@ -25,7 +25,7 @@ fn ingress_label() -> String {
 #[derive(Deserialize)]
 pub struct Properties {
     pub dns: DnsProps,
-    pub k8s: K8sProps,
+    pub k8s: Vec<K8sProps>,
     pub proxy: ProxyProps,
 
     #[serde(rename = "log-level")]

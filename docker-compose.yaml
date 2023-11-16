@@ -8,5 +8,5 @@ services:
       - '443:8443'
     volumes:
       - "./config:/kidns/config:ro"
-      - "./config.env:/kidns/config.env:ro"
+      - "./config.yaml:/kidns/config.yaml:ro"
       - "./local_cache.conf:/kidns/local_cache.conf:ro"
