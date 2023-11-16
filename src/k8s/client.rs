@@ -17,10 +17,10 @@ pub struct K8sClient {
 
 impl K8sClient {
     pub async fn new(props: &Properties) -> Result<K8sClient> {
-        let client = if props.k8s_config.eq_ignore_ascii_case("default") {
+        let client = if props.k8s.config.eq_ignore_ascii_case("default") {
             kube::Client::try_default().await?
         } else {
-            let yaml = tokio::fs::read_to_string(&props.k8s_config).await?;
+            let yaml = tokio::fs::read_to_string(&props.k8s.config).await?;
             let kube_config = Kubeconfig::from_yaml(&yaml)?;
             let kube_options = KubeConfigOptions::default();
             let config = Config::from_custom_kubeconfig(kube_config, &kube_options).await?;
@@ -29,10 +29,10 @@ impl K8sClient {
         };
 
         return Ok(K8sClient {
-            pod_namespace: props.k8s_pod_namespace.to_string(),
-            pod_label: props.k8s_pod_label.to_string(),
-            pod_port: props.k8s_pod_port,
-            ingress_namespace: props.k8s_ingress_namespace.to_string(),
+            pod_namespace: props.k8s.pod.namespace.to_string(),
+            pod_label: props.k8s.pod.label.to_string(),
+            pod_port: props.k8s.pod.port,
+            ingress_namespace: props.k8s.ingress_namespace.to_string(),
             client: Some(client),
         });
     }

@@ -1,69 +1,100 @@
 use crate::util::Result;
+use serde::Deserialize;
+use std::fs::File;
+use std::string::ToString;
 
-static DNS_SERVER_PUBLIC: &str = "DNS_SERVER_PUBLIC";
-static DNS_SERVER_PORT: &str = "DNS_SERVER_PORT";
-static DNS_SERVER_HOST: &str = "DNS_SERVER_HOST";
-/// if set value 'k8s' will get ingress urls
-/// otherwise will try to read from file
-/// if split by ',' will read both
-static DNS_CACHE: &str = "DNS_CACHE";
-static K8S_POD_NAMESPACE: &str = "K8S_POD_NAMESPACE";
-static K8S_POD_LABEL: &str = "K8S_POD_LABEL";
-static K8S_POD_PORT: &str = "K8S_POD_PORT";
-static K8S_INGRESS_NAMESPACE: &str = "K8S_INGRESS_NAMESPACE";
-/// if set value 'default' will get config from KUBECONFIG or ~/.kube/config
-/// otherwise read yaml file path
-static K8S_CONFIG: &str = "K8S_CONFIG";
-static PROXY_HOST: &str = "PROXY_HOST";
-static PROXY_PORT: &str = "PROXY_PORT";
-static PROXY_TLS_CERT: &str = "PROXY_TLS_CERT";
-static PROXY_TLS_KEY: &str = "PROXY_TLS_KEY";
-pub static LOG_LEVEL: &str = "LOG_LEVEL";
+fn empty() -> String {
+    "".to_string()
+}
+fn google_dns() -> String {
+    "8.8.8.8".to_string()
+}
+const fn port_53() -> u16 {
+    53
+}
+const fn port_80() -> u16 {
+    80
+}
+fn default() -> String {
+    "default".to_string()
+}
+fn ingress_label() -> String {
+    "app.kubernetes.io/name=ingress".to_string()
+}
 
+#[derive(Deserialize)]
 pub struct Properties {
-    pub dns_server_public: String,
-    pub dns_server_port: u16,
-    pub dns_server_host: String,
-    pub dns_cache: String,
-    pub k8s_pod_namespace: String,
-    pub k8s_pod_label: String,
-    pub k8s_pod_port: u16,
-    pub k8s_ingress_namespace: String,
-    pub k8s_config: String,
-    pub proxy_host: String,
-    pub proxy_port: u16,
-    pub proxy_tls_cert: String,
-    pub proxy_tls_key: String,
+    pub dns: DnsProps,
+    pub k8s: K8sProps,
+    pub proxy: ProxyProps,
+
+    #[serde(rename = "log-level")]
     pub log_level: String,
 }
 
+#[derive(Deserialize)]
+pub struct DnsProps {
+    pub server: DnsServerProps,
+    pub cache: Vec<String>,
+}
+
+#[derive(Deserialize)]
+pub struct DnsServerProps {
+    #[serde(default = "google_dns")]
+    pub public: String,
+
+    #[serde(default = "port_53")]
+    pub port: u16,
+
+    #[serde(default = "empty")]
+    pub host: String,
+}
+
+#[derive(Deserialize)]
+pub struct K8sProps {
+    #[serde(rename = "ingress-namespace", default = "default")]
+    pub ingress_namespace: String,
+
+    pub pod: K8sPodProps,
+
+    #[serde(default = "default")]
+    pub config: String,
+}
+
+#[derive(Deserialize)]
+pub struct K8sPodProps {
+    #[serde(default = "default")]
+    pub namespace: String,
+
+    #[serde(default = "ingress_label")]
+    pub label: String,
+
+    #[serde(default = "port_80")]
+    pub port: u16,
+}
+
+#[derive(Deserialize)]
+pub struct ProxyProps {
+    #[serde(default = "empty")]
+    pub host: String,
+
+    #[serde(default = "port_80")]
+    pub port: u16,
+
+    pub tls: ProxyTlsProps,
+}
+
+#[derive(Deserialize)]
+pub struct ProxyTlsProps {
+    #[serde(default = "empty")]
+    pub cert: String,
+
+    #[serde(default = "empty")]
+    pub key: String,
+}
+
 pub fn parse_properties() -> Result<Properties> {
-    dotenv::from_filename("config.env").ok();
-
-    return Ok(Properties {
-        dns_server_public: get_optional_env_var(DNS_SERVER_PUBLIC, "8.8.8.8")?, // google dns
-        dns_server_port: get_optional_env_var(DNS_SERVER_PORT, "53")?.parse()?,
-        dns_server_host: get_optional_env_var(DNS_SERVER_HOST, "")?,
-        dns_cache: get_optional_env_var(DNS_CACHE, "")?,
-        k8s_pod_namespace: get_optional_env_var(K8S_POD_NAMESPACE, "default")?,
-        k8s_pod_label: get_optional_env_var(K8S_POD_LABEL, "app.kubernetes.io/name=ingress")?,
-        k8s_pod_port: get_optional_env_var(K8S_POD_PORT, "80")?.parse()?,
-        k8s_ingress_namespace: get_optional_env_var(K8S_INGRESS_NAMESPACE, "default")?,
-        k8s_config: get_optional_env_var(K8S_CONFIG, "default")?,
-        proxy_host: get_optional_env_var(PROXY_HOST, "")?,
-        proxy_port: get_optional_env_var(PROXY_PORT, "80")?.parse()?,
-        proxy_tls_cert: get_optional_env_var(PROXY_TLS_CERT, "")?,
-        proxy_tls_key: get_optional_env_var(PROXY_TLS_KEY, "")?,
-        log_level: get_env_var(LOG_LEVEL)?,
-    });
-}
-
-fn get_optional_env_var(var: &str, default: &str) -> Result<String> {
-    return std::env::var(var)
-        .or(Ok(default.to_string()));
-}
-
-fn get_env_var(var: &str) -> Result<String> {
-    return std::env::var(var)
-        .or(Err(format!("{} var not defined", var).into()));
+    let config_file = File::open("config.yaml")?;
+    let config = serde_yaml::from_reader::<File, Properties>(config_file)?;
+    return Ok(config);
 }

@@ -15,9 +15,9 @@ mod util;
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
     let props = parse_properties()?;
-    init_logs();
+    init_logs(&props.log_level);
 
-    if props.dns_server_host.ne("") {
+    if props.dns.server.host.ne("") {
         // run dns server
         let dns = DnsServer::new(&props).await?;
         tokio::spawn(async {
@@ -27,7 +27,7 @@ async fn main() -> Result<()> {
         });
     }
 
-    if props.proxy_host.ne("") {
+    if props.proxy.host.ne("") {
         // run proxy server
         let proxy = Proxy::new(&props).await?;
         tokio::spawn(async {

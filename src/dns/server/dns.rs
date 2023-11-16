@@ -17,9 +17,9 @@ pub struct DnsServer {
 impl DnsServer {
     pub async fn new(props: &Properties) -> Result<DnsServer> {
         return Ok(DnsServer {
-            public_dns_server: props.dns_server_public.to_string(),
-            host: props.dns_server_host.to_string(),
-            port: props.dns_server_port,
+            public_dns_server: props.dns.server.public.to_string(),
+            host: props.dns.server.host.to_string(),
+            port: props.dns.server.port,
             cache: Cache::new(props).await?,
         });
     }

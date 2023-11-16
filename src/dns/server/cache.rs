@@ -32,7 +32,7 @@ impl Cache {
 
         let mut cache: HashMap<String, CacheRecord> = HashMap::new();
 
-        for cache_type in get_cache_types(&props.dns_cache) {
+        for cache_type in &props.dns.cache {
             if cache_type.eq_ignore_ascii_case("k8s") {
                 let k8s_cache = load_k8s_ingress_cache(&k8s_client).await?;
                 cache = cache.into_iter().chain(k8s_cache).collect();
@@ -138,8 +138,4 @@ where
     }
 
     return Ok(lines);
-}
-
-fn get_cache_types(types: &String) -> Vec<String> {
-    return types.split(",").map(|a| a.to_string()).collect();
 }
