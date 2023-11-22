@@ -29,7 +29,7 @@ dns:
     # or can be used both, separated by comma(',')
   cache:
     - k8s
-    - local_cache.conf
+#    - local_cache.conf
 k8s:
   # default(look to ~/.kube/config) or path to yaml file
   # if not set or empty by default is set 'default'
@@ -39,19 +39,21 @@ k8s:
       # namespace where is located nginx pods
       namespace: edge-services
       label: app.kubernetes.io/name=ingress-nginx
-      port: 443
+      port:
+        http: 80
+        https: 443
     # namespace where need to load ingress urls, ex. your app
     ingress-namespace: app-namespace
 proxy:
   # if empty, proxy disabled
   host: 0.0.0.0
-  # if is needed to access https url, port must be 443,
-  # otherwise you'll get error that unable to access https through http
-  port: 443
+  port:
+    http: 80
+    https: 443
   tls:
   # if not set, local tls disabled
-#    cert: testspace/domain.crt
-#    key: testspace/domain.key
+    cert: testspace/domain.crt
+    key: testspace/domain.key
 log-level: info
 ```
 ###### NOTICE:

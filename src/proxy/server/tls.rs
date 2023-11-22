@@ -2,15 +2,15 @@ use crate::util::Result;
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
 use rustls::server::danger::ClientCertVerifier;
 use rustls::server::WebPkiClientVerifier;
-use rustls::{ClientConfig, DigitallySignedStruct, Error, RootCertStore, ServerName, SignatureScheme};
+use rustls::{ClientConfig, DigitallySignedStruct, Error, RootCertStore, ServerConfig, ServerName, SignatureScheme};
 use rustls_pemfile::{certs, rsa_private_keys};
 use std::fs::File;
-use std::io::BufReader;
+use std::io::{BufReader, Cursor};
 use std::path::Path;
 use std::sync::Arc;
 use std::{env, io};
-use tokio_rustls::TlsAcceptor;
 use webpki::types::{CertificateDer, PrivateKeyDer, UnixTime};
+use crate::proxy::server::proxy::Proxy;
 
 fn load_certs(path: &Path) -> io::Result<Vec<CertificateDer<'static>>> {
     certs(&mut BufReader::new(File::open(path)?)).collect()
@@ -24,7 +24,7 @@ fn load_keys(path: &Path) -> io::Result<PrivateKeyDer<'static>> {
         .map(Into::into)
 }
 
-pub async fn tls_acceptor(cert_path: &str, key_path: &str) -> Result<Option<TlsAcceptor>> {
+pub async fn get_self_tls_server_config(cert_path: &str, key_path: &str) -> Result<Option<ServerConfig>> {
     if cert_path.eq("") && key_path.eq("") {
         return Ok(None);
     }
@@ -41,7 +41,7 @@ pub async fn tls_acceptor(cert_path: &str, key_path: &str) -> Result<Option<TlsA
         .with_no_client_auth()
         .with_single_cert(certs, key)
         .map_err(|err| io::Error::new(io::ErrorKind::InvalidInput, err))?;
-    return Ok(Some(TlsAcceptor::from(Arc::new(config))));
+    return Ok(Some(config));
 }
 
 fn get_root_cert_store() -> RootCertStore {
@@ -50,7 +50,7 @@ fn get_root_cert_store() -> RootCertStore {
     root_cert_store
 }
 
-pub(crate) fn get_tls_client_config() -> Result<ClientConfig> {
+pub(crate) fn get_self_tls_client_config() -> Result<ClientConfig> {
     let mut config = ClientConfig::builder()
         .with_safe_defaults()
         .with_root_certificates(get_root_cert_store())
@@ -59,6 +59,27 @@ pub(crate) fn get_tls_client_config() -> Result<ClientConfig> {
         .dangerous()
         .set_certificate_verifier(Arc::new(SelfSignedVerifier::new()?));
     Ok(config)
+}
+
+impl Proxy {
+    pub(crate) async fn get_tls_server_config(&self, server_name: &String) -> Result<ServerConfig> {
+        let k8s_client = self.get_k8s_client(Some(server_name))?;
+        let (key, cert) = k8s_client.tls_cert(server_name).await?;
+
+        let cert = certs(&mut BufReader::new(Cursor::new(cert)))
+            .filter_map(|x| {
+                x.ok()
+            }).collect();
+        let key = rsa_private_keys(&mut BufReader::new(Cursor::new(key)))
+            .next()
+            .ok_or("Empty ingress private key")??;
+
+        let config = ServerConfig::builder()
+            .with_safe_defaults()
+            .with_no_client_auth()
+            .with_single_cert(cert, key.into())?;
+        Ok(config)
+    }
 }
 
 pub(crate) struct SelfSignedVerifier {

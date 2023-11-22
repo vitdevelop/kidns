@@ -1,67 +1,60 @@
+use crate::k8s::client::K8sClient;
 use crate::proxy::http::get_host;
 use crate::proxy::server::proxy::Proxy;
-use crate::proxy::server::tls::{get_tls_client_config, tls_acceptor};
-use crate::util::Result;
-use kube::ResourceExt;
-use log::{debug, error, info};
+use crate::proxy::server::tls::{get_self_tls_client_config, get_self_tls_server_config};
+use crate::util::{is_tls, log_error_result, Result};
 use std::io;
+use std::io::ErrorKind::UnexpectedEof;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::str::FromStr;
 use std::sync::Arc;
-use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::{TcpListener, TcpStream};
+use tokio::try_join;
 use tokio_rustls::server::TlsStream;
-use tokio_rustls::{rustls, TlsConnector};
-
-enum ServerStream {
-    TcpStream(TcpStream),
-    TlsStream(TlsStream<TcpStream>),
-}
+use tokio_rustls::{rustls, LazyConfigAcceptor, StartHandshake, TlsConnector};
 
 impl Proxy {
     pub async fn serve(self) -> Result<()> {
         let proxy = Arc::new(self);
 
-        let acceptor = tls_acceptor(proxy.cert_path.as_str(), proxy.key_path.as_str()).await?;
+        let http_proxy = proxy.clone();
+        let http = tokio::spawn(async {
+            let http_port = http_proxy.http_port;
+            log_error_result(http_proxy.serve_port(http_port).await)
+        });
 
-        let addr = SocketAddr::from((Ipv4Addr::from_str(&proxy.host)?, proxy.port));
+        let https_proxy = proxy.clone();
+        let https = tokio::spawn(async {
+            let https_port = https_proxy.https_port;
+            log_error_result(https_proxy.serve_port(https_port).await)
+        });
+
+        try_join!(http, https)?;
+
+        Ok(())
+    }
+
+    async fn serve_port(self: Arc<Proxy>, port: u16) -> Result<()> {
+        let addr = SocketAddr::from((Ipv4Addr::from_str(&self.host)?, port));
 
         let listener = TcpListener::bind(addr).await?;
 
-        info!("Proxy Server Initialized");
-        // keep the server running
         loop {
             let (client_conn, _) = listener.accept().await?;
 
-            let client_conn = match acceptor.to_owned() {
-                None => ServerStream::TcpStream(client_conn),
-                Some(acc) => {
-                    let stream = match acc.accept(client_conn).await {
-                        Ok(stream) => stream,
-                        Err(err) => {
-                            error!("{}", err);
-                            continue;
-                        }
-                    };
-                    ServerStream::TlsStream(stream)
-                }
-            };
-
-            let proxy = proxy.clone();
+            let proxy = self.clone();
             tokio::spawn(async move {
-                match proxy.forward_connection(client_conn).await {
-                    Ok(_) => {}
-                    Err(e) => error!("Error on handle client, err: {:?}", e),
-                };
+                if proxy.k8s_clients.len() > 1 {
+                    log_error_result(proxy.forward_multi_cluster_connection(client_conn).await);
+                } else {
+                    log_error_result(proxy.forward_single_cluster_connection(client_conn).await);
+                }
             });
         }
     }
-
-    async fn get_k8s_port_forwarder(
-        &self,
-        url: Option<&String>,
-    ) -> Result<impl AsyncRead + AsyncWrite + Unpin> {
-        let k8s_client = match url {
+    pub(crate) fn get_k8s_client(&self, url: Option<&String>) -> Result<Arc<K8sClient>> {
+        Ok(match url {
             None => self
                 .k8s_clients
                 .first()
@@ -72,58 +65,117 @@ impl Proxy {
                 .get(url)
                 .ok_or(format!("Unable to found any k8s client for url {}", url))?
                 .clone(),
-        };
-
-        let mut pod_list = k8s_client.pod_list().await?;
-        let pod_api = k8s_client.pod_api()?;
-
-        let pod = pod_list.items.pop().ok_or("Unable to find free pod port")?;
-        let pod_name = pod.name_any();
-        debug!("Connect to {}", pod_name);
-
-        let pod_port = k8s_client.pod_port;
-
-        let mut forwarder = pod_api.portforward(pod_name.as_str(), &[pod_port]).await?;
-        let upstream_conn = forwarder
-            .take_stream(pod_port)
-            .ok_or("Cannot get stream from port forward")?;
-
-        Ok(upstream_conn)
+        })
     }
 
-    async fn forward_connection(self: Arc<Self>, mut client_conn: ServerStream) -> Result<()> {
-        match &mut client_conn {
-            ServerStream::TcpStream(stream) => {
-                let mut upstream_conn = self.get_k8s_port_forwarder(None).await?;
-                tokio::io::copy_bidirectional(stream, &mut upstream_conn).await?;
+    async fn get_k8s_port_forwarder(
+        &self,
+        url: Option<&String>,
+        secure: bool,
+    ) -> Result<impl AsyncRead + AsyncWrite + Unpin> {
+        let k8s_client = self.get_k8s_client(url)?;
+
+        k8s_client.get_port_forwarder(secure).await
+    }
+
+    async fn forward_multi_cluster_connection(
+        self: Arc<Self>,
+        mut client_conn: TcpStream,
+    ) -> Result<()> {
+        let is_tls = is_tls(&client_conn).await?;
+
+        if is_tls {
+            let acceptor =
+                LazyConfigAcceptor::new(rustls::server::Acceptor::default(), client_conn);
+            let start = acceptor.await.unwrap();
+            let ch = start.client_hello();
+
+            let server_name = ch
+                .server_name()
+                .ok_or("TLS connection didn't provide server name")?
+                .to_owned();
+
+            match get_self_tls_server_config(self.cert_path.as_str(), self.key_path.as_str())
+                .await?
+            {
+                None => self.forward_tls_connection(start, &server_name).await?,
+                Some(user_defined_config) => {
+                    let client_stream =
+                        &mut start.into_stream(Arc::new(user_defined_config)).await?;
+                    self.proxy_tls_connection(client_stream, &server_name)
+                        .await?
+                }
             }
-            ServerStream::TlsStream(stream) => {
-                self.proxy_tls_connection(stream).await?;
-            }
+            Ok(())
+        } else {
+            let host = get_host(&mut client_conn).await?;
+
+            let server_stream = &mut self.get_k8s_port_forwarder(Some(&host), false).await?;
+
+            tokio::io::copy_bidirectional(&mut client_conn, server_stream).await?;
+
+            Ok(())
         }
+    }
+
+    async fn forward_single_cluster_connection(
+        self: Arc<Self>,
+        mut client_conn: TcpStream,
+    ) -> Result<()> {
+        let is_tls = is_tls(&mut client_conn).await?;
+        let mut upstream_conn = self.get_k8s_port_forwarder(None, is_tls).await?;
+        tokio::io::copy_bidirectional(&mut client_conn, &mut upstream_conn).await?;
+
+        Ok(())
+    }
+
+    async fn forward_tls_connection(
+        &self,
+        client_handshake: StartHandshake<TcpStream>,
+        host: &String,
+    ) -> Result<()> {
+        let server_config = {
+            let certs = self.ingress_certs.read().await;
+            match certs.get(host) {
+                None => {
+                    drop(certs);
+                    let server_config = Arc::new(self.get_tls_server_config(host).await?);
+
+                    self.ingress_certs
+                        .write()
+                        .await
+                        .insert(host.to_string(), server_config.clone());
+                    server_config
+                }
+                Some(cert_config) => cert_config.clone(),
+            }
+        };
+
+        let mut client_stream = client_handshake.into_stream(server_config).await?;
+
+        self.proxy_tls_connection(&mut client_stream, host).await?;
 
         Ok(())
     }
 
     async fn proxy_tls_connection(
         &self,
-        downstream: &mut TlsStream<TcpStream>,
+        client_stream: &mut TlsStream<TcpStream>,
+        host: &String,
     ) -> Result<()> {
-        let connector = TlsConnector::from(Arc::new(get_tls_client_config()?));
-        //
-        let (host, data) = get_host(downstream).await?;
+        let connector = TlsConnector::from(Arc::new(get_self_tls_client_config()?));
 
-        debug!("Route request to {}", host);
-
-        let upstream = self.get_k8s_port_forwarder(Some(&host)).await?;
+        let upstream = self.get_k8s_port_forwarder(Some(host), true).await?;
 
         let domain = rustls::ServerName::try_from(host.as_str())
             .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid dnsname"))?;
         let mut socket = connector.connect(domain, upstream).await?;
 
-        socket.write_all(data.as_slice()).await?;
-
-        tokio::io::copy_bidirectional(downstream, &mut socket).await?;
+        if let Err(e) = tokio::io::copy_bidirectional(client_stream, &mut socket).await {
+            if e.kind() != UnexpectedEof {
+                return Err(Box::new(e));
+            }
+        }
 
         Ok(())
     }

@@ -15,6 +15,9 @@ const fn port_53() -> u16 {
 const fn port_80() -> u16 {
     80
 }
+const fn port_443() -> u16 {
+    443
+}
 fn default() -> String {
     "default".to_string()
 }
@@ -69,8 +72,7 @@ pub struct K8sPodProps {
     #[serde(default = "ingress_label")]
     pub label: String,
 
-    #[serde(default = "port_80")]
-    pub port: u16,
+    pub port: PortProps,
 }
 
 #[derive(Deserialize)]
@@ -78,10 +80,18 @@ pub struct ProxyProps {
     #[serde(default = "empty")]
     pub host: String,
 
-    #[serde(default = "port_80")]
-    pub port: u16,
+    pub port: PortProps,
 
     pub tls: ProxyTlsProps,
+}
+
+#[derive(Deserialize)]
+pub struct PortProps {
+    #[serde(default = "port_80")]
+    pub http: u16,
+
+    #[serde(default = "port_443")]
+    pub https: u16,
 }
 
 #[derive(Deserialize)]

@@ -3,10 +3,10 @@ services:
     container_name: kidns
     image: vitdevelop/kidns:latest
     ports:
-      - '53:2053/udp'
-      - '53:2053/tcp'
-      - '443:8443'
+      - '53:53/udp'
+      - '53:53/tcp'
+      - '443:443'
+      - '80:80'
     volumes:
       - "./config:/kidns/config:ro"
       - "./config.yaml:/kidns/config.yaml:ro"
-      - "./local_cache.conf:/kidns/local_cache.conf:ro"
