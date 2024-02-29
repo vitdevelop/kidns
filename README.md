@@ -21,12 +21,12 @@ dns:
   server:
     # by default will be '8.8.8.8' if not set
     public: 8.8.8.8
-    # by default will be port 53 if not set
     port: 53
-    # if ignored "empty" value is set, if "empty" dns disabled
+    # if empty, dns disabled
     host: 0.0.0.0
     # can be set as 'k8s' to load kubernetes ingress url
     # also can load urls from file('filename')
+    # or can be used both, separated by comma(',')
   cache:
     - k8s
 #    - local_cache.conf
@@ -39,27 +39,21 @@ k8s:
       # namespace where is located nginx pods
       namespace: edge-services
       label: app.kubernetes.io/name=ingress-nginx
-      # if ignored, http:80 and https:443 will be set
       port:
-        # default 80 if not set
         http: 80
-        # default 443 if not set
         https: 443
     # namespace where need to load ingress urls, ex. your app
     ingress-namespace: app-namespace
 proxy:
   # if empty, proxy disabled
   host: 0.0.0.0
-  # if ignored, http:80 and https:443 will be set
   port:
-    # default 80 if not set
     http: 80
-    # default 443 if not set
     https: 443
-  tls:
   # if not set, local tls disabled
-    cert: testspace/domain.crt
-    key: testspace/domain.key
+  root-ca:
+    key: ca-root.key
+    cert: ca-root.crt
 log-level: info
 ```
 ###### NOTICE:

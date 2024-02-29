@@ -1,6 +1,6 @@
 use crate::proxy::server::proxy::Proxy;
 use anyhow::anyhow;
-use rcgen::{Certificate, CertificateParams, DnType, KeyPair, PKCS_ECDSA_P384_SHA384, PKCS_RSA_SHA256, PKCS_RSA_SHA384, SanType};
+use rcgen::{Certificate, CertificateParams, DnType, KeyPair, PKCS_RSA_SHA256, SanType};
 use std::env;
 use std::fs::File;
 use std::io::Read;
