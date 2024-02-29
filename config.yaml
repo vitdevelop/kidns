@@ -31,8 +31,8 @@ proxy:
   port:
     http: 80
     https: 443
-  tls:
   # if not set, local tls disabled
-#    cert: testspace/domain.crt
-#    key: testspace/domain.key
+  root-ca:
+    key: ca-root.key
+    cert: ca-root.crt
 log-level: info

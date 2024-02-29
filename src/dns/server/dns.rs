@@ -1,7 +1,7 @@
 use crate::config::properties::Properties;
 use crate::dns::buffer::BytePacketBuffer;
 use crate::dns::server::cache::Cache;
-use crate::util::Result;
+use anyhow::Result;
 use log::info;
 use std::sync::Arc;
 use tokio::net::UdpSocket;

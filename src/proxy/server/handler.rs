@@ -1,8 +1,9 @@
 use crate::k8s::client::K8sClient;
 use crate::proxy::http::get_host;
 use crate::proxy::server::proxy::Proxy;
-use crate::proxy::server::tls::{get_self_tls_client_config, get_self_tls_server_config};
-use crate::util::{is_tls, log_error_result, Result};
+use crate::proxy::server::tls::{get_self_tls_client_config };
+use crate::util::{is_tls, log_error_result};
+use anyhow::{anyhow, Error, Result};
 use std::io;
 use std::io::ErrorKind::UnexpectedEof;
 use std::net::{Ipv4Addr, SocketAddr};
@@ -58,12 +59,12 @@ impl Proxy {
             None => self
                 .k8s_clients
                 .first()
-                .ok_or("Unable to found any k8s client")?
+                .ok_or(anyhow!("Unable to found any k8s client"))?
                 .clone(),
             Some(url) => self
                 .ingress_clients
                 .get(url)
-                .ok_or(format!("Unable to found any k8s client for url {}", url))?
+                .ok_or(anyhow!("Unable to found any k8s client for url {}", url))?
                 .clone(),
         })
     }
@@ -92,19 +93,32 @@ impl Proxy {
 
             let server_name = ch
                 .server_name()
-                .ok_or("TLS connection didn't provide server name")?
+                .ok_or(anyhow!("TLS connection didn't provide server name"))?
                 .to_owned();
 
-            match get_self_tls_server_config(self.cert_path.as_str(), self.key_path.as_str())
-                .await?
-            {
-                None => self.forward_tls_connection(start, &server_name).await?,
-                Some(user_defined_config) => {
-                    let client_stream =
-                        &mut start.into_stream(Arc::new(user_defined_config)).await?;
-                    self.proxy_tls_connection(client_stream, &server_name)
-                        .await?
-                }
+            if self.root_cert.is_none() {
+                self.forward_tls_connection(start, &server_name).await?
+            } else {
+                let user_defined_config = {
+                    let certs = self.ingress_certs.read().await;
+                    match certs.get(&server_name) {
+                        None => {
+                            drop(certs);
+                            let user_defined_config = Arc::new(self.get_local_server_config(&server_name).await?);
+
+                            self.ingress_certs
+                                .write()
+                                .await
+                                .insert(server_name.to_string(), user_defined_config.clone());
+                            user_defined_config
+                        }
+                        Some(cert_config) => cert_config.clone(),
+                    }
+                };
+
+                let client_stream = &mut start.into_stream(user_defined_config).await?;
+                self.proxy_tls_connection(client_stream, &server_name)
+                    .await?;
             }
             Ok(())
         } else {
@@ -139,7 +153,7 @@ impl Proxy {
             match certs.get(host) {
                 None => {
                     drop(certs);
-                    let server_config = Arc::new(self.get_tls_server_config(host).await?);
+                    let server_config = Arc::new(self.get_k8s_server_config(host).await?);
 
                     self.ingress_certs
                         .write()
@@ -167,16 +181,18 @@ impl Proxy {
 
         let upstream = self.get_k8s_port_forwarder(Some(host), true).await?;
 
-        let domain = rustls::ServerName::try_from(host.as_str())
-            .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid dnsname"))?;
+        let domain = rustls::pki_types::ServerName::try_from(host.as_str())
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid dnsname"))?
+            .to_owned();
         let mut socket = connector.connect(domain, upstream).await?;
 
         if let Err(e) = tokio::io::copy_bidirectional(client_stream, &mut socket).await {
             if e.kind() != UnexpectedEof {
-                return Err(Box::new(e));
+                return Err(Error::from(e));
             }
         }
 
         Ok(())
     }
+
 }

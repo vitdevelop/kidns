@@ -1,6 +1,6 @@
 use crate::dns::buffer::BytePacketBuffer;
 use crate::dns::header::QueryType;
-use crate::util::Result;
+use anyhow::Result;
 use std::net::{Ipv4Addr, Ipv6Addr};
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash, Ord, PartialOrd)]

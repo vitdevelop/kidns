@@ -2,7 +2,7 @@ use crate::dns::buffer::BytePacketBuffer;
 use crate::dns::header::{DnsHeader, QueryType};
 use crate::dns::question::DnsQuestion;
 use crate::dns::record::DnsRecord;
-use crate::util::Result;
+use anyhow::Result;
 
 #[derive(Clone, Debug)]
 pub struct DnsPacket {

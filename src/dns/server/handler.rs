@@ -3,7 +3,7 @@ use crate::dns::header::ResultCode::NOERROR;
 use crate::dns::header::ResultCode;
 use crate::dns::packet::DnsPacket;
 use crate::dns::server::dns::DnsServer;
-use crate::util::Result;
+use anyhow::Result;
 use log::{debug, warn};
 use std::net::SocketAddr;
 use tokio::net::UdpSocket;

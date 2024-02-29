@@ -1,6 +1,6 @@
 use crate::config::properties::K8sProps;
 use crate::ingress_spec;
-use crate::util::Result;
+use anyhow::{anyhow, Result};
 use k8s_openapi::api::core::v1::{Pod, Secret};
 use k8s_openapi::api::networking::v1::Ingress;
 use kube::api::{ListParams, ObjectList};
@@ -49,7 +49,7 @@ impl K8sClient {
         let client = self
             .client
             .to_owned()
-            .ok_or("K8s client didn't initialized")?;
+            .ok_or(anyhow!("K8s client didn't initialized"))?;
         return Ok(Api::namespaced(client, &self.pod_namespace));
     }
 
@@ -62,7 +62,7 @@ impl K8sClient {
         let client = self
             .client
             .to_owned()
-            .ok_or("K8s client didn't initialized")?;
+            .ok_or(anyhow!("K8s client didn't initialized"))?;
         return Ok(Api::namespaced(client, &self.ingress_namespace));
     }
 
@@ -85,7 +85,7 @@ impl K8sClient {
         let client = self
             .client
             .to_owned()
-            .ok_or("K8s client didn't initialized")?;
+            .ok_or(anyhow!("K8s client didn't initialized"))?;
         return Ok(Api::namespaced(client, &self.ingress_namespace));
     }
 
@@ -99,6 +99,7 @@ impl K8sClient {
     pub async fn tls_cert(&self, server_name: &String) -> Result<(Vec<u8>, Vec<u8>)> {
         match ingress_spec!(self)
             .map(|ingress| ingress.tls)
+            .filter(|tls| tls.is_some())
             .map(|tls| tls.unwrap())
             .flat_map(|tls| tls)
             .filter(|tls| tls.hosts.is_some())
@@ -116,7 +117,7 @@ impl K8sClient {
             })
             .next()
         {
-            None => Err(format!("Can't found ingress {}", server_name).into()),
+            None => Err(anyhow!("Can't found ingress {}", server_name)),
             Some(secret_name) => {
                 let (key, cert) = self
                     .secrets_list()
@@ -131,14 +132,17 @@ impl K8sClient {
                     })
                     .map(|secret| {
                         let key = &secret.data.as_ref().unwrap().get(TLS_KEY_SECRET).unwrap().0;
-                        let cert = &secret.data.as_ref().unwrap().get(TLS_CERT_SECRET).unwrap().0;
-                        (
-                            key.clone(),
-                            cert.clone(),
-                        )
+                        let cert = &secret
+                            .data
+                            .as_ref()
+                            .unwrap()
+                            .get(TLS_CERT_SECRET)
+                            .unwrap()
+                            .0;
+                        (key.clone(), cert.clone())
                     })
                     .next()
-                    .ok_or(format!("Unable to find cert for {}", server_name))?;
+                    .ok_or(anyhow!("Unable to find cert for {}", server_name))?;
 
                 Ok((key, cert))
             }
@@ -152,7 +156,7 @@ impl K8sClient {
         let mut pod_list = self.pod_list().await?;
         let pod_api = self.pod_api()?;
 
-        let pod = pod_list.items.pop().ok_or("Unable to find free pod port")?;
+        let pod = pod_list.items.pop().ok_or(anyhow!("Unable to find free pod port"))?;
         let pod_name = pod.name_any();
         debug!("Connect to {}", pod_name);
 
@@ -165,7 +169,7 @@ impl K8sClient {
         let mut forwarder = pod_api.portforward(pod_name.as_str(), &[pod_port]).await?;
         let upstream_conn = forwarder
             .take_stream(pod_port)
-            .ok_or("Cannot get stream from port forward")?;
+            .ok_or(anyhow!("Cannot get stream from port forward"))?;
 
         Ok(upstream_conn)
     }

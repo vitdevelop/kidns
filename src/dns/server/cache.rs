@@ -1,8 +1,7 @@
 use crate::config::properties::Properties;
 use crate::dns::record::DnsRecord;
 use crate::k8s::client::K8sClient;
-use crate::util::Result;
-use chrono::{DateTime, Duration, Utc};
+use anyhow::{anyhow, Result};
 use log::info;
 use std::collections::HashMap;
 use std::net::Ipv4Addr;
@@ -11,6 +10,7 @@ use std::path::Path;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::vec;
+use time::{Duration, OffsetDateTime};
 use tokio::fs::File;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::sync::RwLock;
@@ -18,7 +18,7 @@ use tokio::sync::RwLock;
 #[derive(Debug, Clone)]
 pub struct CacheRecord {
     pub records: Vec<DnsRecord>,
-    pub expires: DateTime<Utc>,
+    pub expires: OffsetDateTime,
 }
 
 #[derive(Debug, Clone)]
@@ -60,7 +60,7 @@ impl Cache {
             Some(record) => record.to_owned(),
         };
 
-        if record.expires < Utc::now() {
+        if record.expires < OffsetDateTime::now_utc() {
             self.domains.write().await.remove(domain);
             return None;
         }
@@ -80,7 +80,7 @@ async fn load_k8s_ingress_cache(k8s_clients: &Vec<K8sClient>) -> Result<HashMap<
             return (
                 host.to_string(),
                 CacheRecord {
-                    expires: Utc::now().add(Duration::days(365)),
+                    expires: OffsetDateTime::now_utc().add(Duration::days(365)),
                     records: vec![DnsRecord::A {
                         domain: host.to_owned(),
                         addr: Ipv4Addr::new(127, 0, 0, 1),
@@ -108,7 +108,7 @@ async fn load_local_cache(path: &String) -> Result<HashMap<String, CacheRecord>>
             return (
                 url.to_string(),
                 CacheRecord {
-                    expires: Utc::now().add(Duration::days(365)),
+                    expires: OffsetDateTime::now_utc().add(Duration::days(365)),
                     records: vec![DnsRecord::A {
                         domain: url.to_string(),
                         addr: ip,
@@ -128,7 +128,7 @@ where
 {
     let file = match File::open(filename).await {
         Ok(f) => Ok(f),
-        Err(e) => Err(format!("Can't open file, err: {:#?}", e)),
+        Err(e) => Err(anyhow!("Can't open file, err: {:#?}", e)),
     }?;
     let mut line_buf = BufReader::new(file).lines();
     let mut lines: Vec<String> = Vec::default();

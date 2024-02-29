@@ -1,8 +1,8 @@
+use anyhow::anyhow;
 use crate::config::logs::init_logs;
 use crate::config::properties::parse_properties;
 use crate::dns::server::dns::DnsServer;
 use crate::proxy::server::proxy::Proxy;
-use crate::util::{Error, Result};
 use log::error;
 use tokio::signal;
 
@@ -13,7 +13,7 @@ mod proxy;
 mod util;
 
 #[tokio::main(flavor = "current_thread")]
-async fn main() -> Result<()> {
+async fn main() -> anyhow::Result<()> {
     let props = parse_properties()?;
     init_logs(&props.log_level);
 
@@ -41,8 +41,7 @@ async fn main() -> Result<()> {
     return match signal::ctrl_c().await {
         Ok(_) => Ok(()),
         Err(e) => {
-            error!("Unable to handle shutdown signal, err: {:?}", e);
-            Err(Error::try_from(e)?)
+            Err(anyhow!("Unable to handle shutdown signal, err: {:?}", e))
         }
     };
 }

@@ -1,4 +1,4 @@
-use crate::util::Result;
+use anyhow::{anyhow, Result};
 
 pub const PACKET_SIZE: usize = 1432; // for IPv4 is enough
 // pub const PACKET_SIZE: usize = 508; // 576 IPv4 (every host must be able to reassemble) - 60 IPv4 header - 8 UDP header
@@ -66,7 +66,7 @@ impl BytePacketBuffer {
         let mut delimit = "";
         loop {
             if jumps_performed > max_jumps {
-                return Err(format!("Limit of {} jumps exceeded", max_jumps).into());
+                return Err(anyhow!("Limit of {} jumps exceeded", max_jumps).into());
             }
 
             let len = self.get(pos);
@@ -139,7 +139,7 @@ impl BytePacketBuffer {
             let len = label.len();
             if len > 0x3F {
                 // 63
-                return Err("Single label exceeds 63 characters of length".into());
+                return Err(anyhow!("Single label exceeds 63 characters of length"));
             }
 
             self.write_u8(len as u8);

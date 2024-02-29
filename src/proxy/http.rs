@@ -1,10 +1,10 @@
-use crate::Result;
+use anyhow::anyhow;
 use httparse::{Request, Status};
 use log::error;
 use tokio::net::TcpStream;
 
 /// Return host header and read buffer
-pub(crate) async fn get_host(tcp_stream: &mut TcpStream) -> Result<String> {
+pub(crate) async fn get_host(tcp_stream: &mut TcpStream) -> anyhow::Result<String> {
     let mut headers = [httparse::EMPTY_HEADER; 64];
     let mut req = Request::new(&mut headers);
 
@@ -27,7 +27,7 @@ pub(crate) async fn get_host(tcp_stream: &mut TcpStream) -> Result<String> {
     };
 
     match req.headers.iter().find(|header| header.name == "Host") {
-        None => Err("Host not found".into()),
+        None => Err(anyhow!("Host not found")),
         Some(host) => {
             let host_value = String::from_utf8_lossy(host.value).to_string();
             Ok(host_value)

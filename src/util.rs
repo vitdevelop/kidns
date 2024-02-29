@@ -1,9 +1,6 @@
 use tokio::net::TcpStream;
 
-pub(crate) type Error = Box<dyn std::error::Error + Send + Sync>;
-pub(crate) type Result<T> = std::result::Result<T, Error>;
-
-pub fn log_error_result(res: Result<()>) {
+pub fn log_error_result(res: anyhow::Result<()>) {
     match res {
         Ok(_) => {}
         Err(e) => {
@@ -12,7 +9,7 @@ pub fn log_error_result(res: Result<()>) {
     }
 }
 
-pub async fn is_tls(stream: &TcpStream) -> Result<bool> {
+pub async fn is_tls(stream: &TcpStream) -> anyhow::Result<bool> {
     let mut handshake_buffer = [0u8; 3];
     stream.peek(handshake_buffer.as_mut_slice()).await?;
     // [0] 22 handshake

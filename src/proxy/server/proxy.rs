@@ -1,9 +1,11 @@
 use crate::config::properties::Properties;
 use crate::k8s::client::K8sClient;
-use crate::util::Result;
+use crate::proxy::server::cert::get_root_ca_params;
+use anyhow::Result;
+use rcgen::Certificate;
+use rustls::ServerConfig;
 use std::collections::HashMap;
 use std::sync::Arc;
-use rustls::ServerConfig;
 use tokio::sync::RwLock;
 
 pub struct Proxy {
@@ -13,8 +15,7 @@ pub struct Proxy {
     pub(super) k8s_clients: Vec<Arc<K8sClient>>,
     pub(super) ingress_clients: HashMap<String, Arc<K8sClient>>,
     pub(super) ingress_certs: RwLock<HashMap<String, Arc<ServerConfig>>>,
-    pub(super) key_path: String,
-    pub(super) cert_path: String,
+    pub(super) root_cert: Option<Certificate>,
 }
 
 impl Proxy {
@@ -31,6 +32,11 @@ impl Proxy {
             k8s_clients.push(k8s_client.clone());
         }
 
+        let ca_certificate = match &props.proxy.root_ca {
+            None => None,
+            Some(tls_props) => Some(get_root_ca_params(&tls_props.key, &tls_props.cert).await?),
+        };
+
         return Ok(Proxy {
             host: props.proxy.host.to_string(),
             http_port: props.proxy.port.http,
@@ -38,8 +44,7 @@ impl Proxy {
             k8s_clients,
             ingress_clients,
             ingress_certs: RwLock::new(HashMap::new()),
-            key_path: props.proxy.tls.key.to_string(),
-            cert_path: props.proxy.tls.cert.to_string(),
+            root_cert: ca_certificate,
         });
     }
 }

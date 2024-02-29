@@ -1,48 +1,16 @@
-use crate::util::Result;
+use crate::proxy::server::proxy::Proxy;
+use anyhow::{anyhow, Result};
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
+use rustls::pki_types::ServerName;
 use rustls::server::danger::ClientCertVerifier;
 use rustls::server::WebPkiClientVerifier;
-use rustls::{ClientConfig, DigitallySignedStruct, Error, RootCertStore, ServerConfig, ServerName, SignatureScheme};
-use rustls_pemfile::{certs, rsa_private_keys};
-use std::fs::File;
+use rustls::{
+    ClientConfig, DigitallySignedStruct, Error, RootCertStore, ServerConfig, SignatureScheme,
+};
+use rustls_pemfile::{certs, pkcs8_private_keys, rsa_private_keys};
 use std::io::{BufReader, Cursor};
-use std::path::Path;
 use std::sync::Arc;
-use std::{env, io};
 use webpki::types::{CertificateDer, PrivateKeyDer, UnixTime};
-use crate::proxy::server::proxy::Proxy;
-
-fn load_certs(path: &Path) -> io::Result<Vec<CertificateDer<'static>>> {
-    certs(&mut BufReader::new(File::open(path)?)).collect()
-}
-
-fn load_keys(path: &Path) -> io::Result<PrivateKeyDer<'static>> {
-    let file = File::open(path)?;
-    rsa_private_keys(&mut BufReader::new(file))
-        .next()
-        .unwrap()
-        .map(Into::into)
-}
-
-pub async fn get_self_tls_server_config(cert_path: &str, key_path: &str) -> Result<Option<ServerConfig>> {
-    if cert_path.eq("") && key_path.eq("") {
-        return Ok(None);
-    }
-
-    let parent = env::current_dir()?;
-
-    let cert_path = parent.join(cert_path).to_str().unwrap().to_string();
-    let key_path = parent.join(key_path).to_str().unwrap().to_string();
-
-    let certs = load_certs(cert_path.as_ref())?;
-    let key = load_keys(key_path.as_ref())?;
-    let config = rustls::ServerConfig::builder()
-        .with_safe_defaults()
-        .with_no_client_auth()
-        .with_single_cert(certs, key)
-        .map_err(|err| io::Error::new(io::ErrorKind::InvalidInput, err))?;
-    return Ok(Some(config));
-}
 
 fn get_root_cert_store() -> RootCertStore {
     let mut root_cert_store = RootCertStore::empty();
@@ -52,7 +20,6 @@ fn get_root_cert_store() -> RootCertStore {
 
 pub(crate) fn get_self_tls_client_config() -> Result<ClientConfig> {
     let mut config = ClientConfig::builder()
-        .with_safe_defaults()
         .with_root_certificates(get_root_cert_store())
         .with_no_client_auth();
     config
@@ -62,26 +29,42 @@ pub(crate) fn get_self_tls_client_config() -> Result<ClientConfig> {
 }
 
 impl Proxy {
-    pub(crate) async fn get_tls_server_config(&self, server_name: &String) -> Result<ServerConfig> {
+    pub(crate) async fn get_k8s_server_config(&self, server_name: &String) -> Result<ServerConfig> {
         let k8s_client = self.get_k8s_client(Some(server_name))?;
         let (key, cert) = k8s_client.tls_cert(server_name).await?;
 
         let cert = certs(&mut BufReader::new(Cursor::new(cert)))
-            .filter_map(|x| {
-                x.ok()
-            }).collect();
+            .filter_map(|x| x.ok())
+            .collect();
         let key = rsa_private_keys(&mut BufReader::new(Cursor::new(key)))
             .next()
-            .ok_or("Empty ingress private key")??;
+            .ok_or(anyhow!("Empty ingress private key"))??;
 
         let config = ServerConfig::builder()
-            .with_safe_defaults()
             .with_no_client_auth()
             .with_single_cert(cert, key.into())?;
         Ok(config)
     }
+
+    pub(crate) async fn get_local_server_config(&self, server_name: &String) -> Result<ServerConfig> {
+        let (key, cert) = self.generate_signed_cert(server_name.as_str())?;
+
+        let key: PrivateKeyDer = pkcs8_private_keys(&mut BufReader::new(key.as_bytes()))
+            .next()
+            .ok_or(anyhow!("Unable to find generated cert key"))??.into();
+
+        let cert = vec![certs(&mut BufReader::new(cert.as_bytes()))
+            .next()
+            .ok_or(anyhow!("Unable to find generated cert pem"))??];
+
+        let config = ServerConfig::builder()
+            .with_no_client_auth()
+            .with_single_cert(cert, key)?;
+        Ok(config)
+    }
 }
 
+#[derive(Debug)]
 pub(crate) struct SelfSignedVerifier {
     verifier: Arc<dyn ClientCertVerifier>,
 }
@@ -96,7 +79,14 @@ impl SelfSignedVerifier {
 }
 
 impl ServerCertVerifier for SelfSignedVerifier {
-    fn verify_server_cert(&self, _end_entity: &CertificateDer<'_>, _intermediates: &[CertificateDer<'_>], _server_name: &ServerName, _ocsp_response: &[u8], _now: UnixTime) -> std::result::Result<ServerCertVerified, Error> {
+    fn verify_server_cert(
+        &self,
+        _end_entity: &CertificateDer<'_>,
+        _intermediates: &[CertificateDer<'_>],
+        _server_name: &ServerName,
+        _ocsp_response: &[u8],
+        _now: UnixTime,
+    ) -> std::result::Result<ServerCertVerified, Error> {
         Ok(ServerCertVerified::assertion())
     }
 

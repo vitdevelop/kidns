@@ -1,6 +1,6 @@
 use crate::dns::buffer::BytePacketBuffer;
 use crate::dns::header::QueryType;
-use crate::util::Result;
+use anyhow::Result;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct DnsQuestion {

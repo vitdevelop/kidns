@@ -1,4 +1,4 @@
-use crate::util::Result;
+use anyhow::Result;
 use serde::Deserialize;
 use std::fs::File;
 use std::string::ToString;
@@ -23,6 +23,9 @@ fn default() -> String {
 }
 fn ingress_label() -> String {
     "app.kubernetes.io/name=ingress".to_string()
+}
+const fn default_ports() -> PortProps {
+    PortProps{ http: port_80(), https: port_443() }
 }
 
 #[derive(Deserialize)]
@@ -72,6 +75,7 @@ pub struct K8sPodProps {
     #[serde(default = "ingress_label")]
     pub label: String,
 
+    #[serde(default = "default_ports")]
     pub port: PortProps,
 }
 
@@ -80,9 +84,11 @@ pub struct ProxyProps {
     #[serde(default = "empty")]
     pub host: String,
 
+    #[serde(default = "default_ports")]
     pub port: PortProps,
 
-    pub tls: ProxyTlsProps,
+    #[serde(rename = "root-ca")]
+    pub root_ca: Option<ProxyTlsProps>,
 }
 
 #[derive(Deserialize)]
