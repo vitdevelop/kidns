@@ -1,7 +1,7 @@
 use crate::k8s::client::K8sClient;
 use crate::proxy::http::get_host;
-use crate::proxy::server::proxy::Proxy;
-use crate::proxy::server::tls::{get_self_tls_client_config };
+use crate::proxy::server::proxy::{DestinationConfig, Proxy};
+use crate::proxy::server::tls::get_self_tls_client_config;
 use crate::util::{is_tls, log_error_result};
 use anyhow::{anyhow, Error, Result};
 use std::io;
@@ -9,11 +9,11 @@ use std::io::ErrorKind::UnexpectedEof;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::str::FromStr;
 use std::sync::Arc;
-use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::try_join;
 use tokio_rustls::server::TlsStream;
-use tokio_rustls::{rustls, LazyConfigAcceptor, StartHandshake, TlsConnector};
+use tokio_rustls::{rustls, LazyConfigAcceptor, TlsConnector};
 
 impl Proxy {
     pub async fn serve(self) -> Result<()> {
@@ -46,11 +46,7 @@ impl Proxy {
 
             let proxy = self.clone();
             tokio::spawn(async move {
-                if proxy.k8s_clients.len() > 1 {
-                    log_error_result(proxy.forward_multi_cluster_connection(client_conn).await);
-                } else {
-                    log_error_result(proxy.forward_single_cluster_connection(client_conn).await);
-                }
+                log_error_result(proxy.forward_k8s_connection(client_conn).await);
             });
         }
     }
@@ -69,20 +65,7 @@ impl Proxy {
         })
     }
 
-    async fn get_k8s_port_forwarder(
-        &self,
-        url: Option<&String>,
-        secure: bool,
-    ) -> Result<impl AsyncRead + AsyncWrite + Unpin> {
-        let k8s_client = self.get_k8s_client(url)?;
-
-        k8s_client.get_port_forwarder(secure).await
-    }
-
-    async fn forward_multi_cluster_connection(
-        self: Arc<Self>,
-        mut client_conn: TcpStream,
-    ) -> Result<()> {
+    async fn forward_k8s_connection(self: Arc<Self>, client_conn: TcpStream) -> Result<()> {
         let is_tls = is_tls(&client_conn).await?;
 
         if is_tls {
@@ -97,96 +80,59 @@ impl Proxy {
                 .to_owned();
 
             if self.root_cert.is_none() {
-                self.forward_tls_connection(start, &server_name).await?
+                let server_config = self.get_k8s_server_config(&server_name).await?;
+
+                let mut client_stream = start.into_stream(server_config.server_config).await?;
+
+                self.proxy_tls_connection(
+                    &mut client_stream,
+                    &server_name,
+                    server_config.k8s_client.is_some(),
+                )
+                .await?;
             } else {
-                let user_defined_config = {
-                    let certs = self.ingress_certs.read().await;
-                    match certs.get(&server_name) {
-                        None => {
-                            drop(certs);
-                            let user_defined_config = Arc::new(self.get_local_server_config(&server_name).await?);
+                let user_defined_config = self.get_local_server_config(&server_name).await?;
 
-                            self.ingress_certs
-                                .write()
-                                .await
-                                .insert(server_name.to_string(), user_defined_config.clone());
-                            user_defined_config
-                        }
-                        Some(cert_config) => cert_config.clone(),
-                    }
-                };
-
-                let client_stream = &mut start.into_stream(user_defined_config).await?;
-                self.proxy_tls_connection(client_stream, &server_name)
-                    .await?;
+                let client_stream =
+                    &mut start.into_stream(user_defined_config.server_config).await?;
+                self.proxy_tls_connection(
+                    client_stream,
+                    &server_name,
+                    user_defined_config.k8s_client.is_some(),
+                )
+                .await?;
             }
             Ok(())
         } else {
-            let host = get_host(&mut client_conn).await?;
-
-            let server_stream = &mut self.get_k8s_port_forwarder(Some(&host), false).await?;
-
-            tokio::io::copy_bidirectional(&mut client_conn, server_stream).await?;
-
-            Ok(())
+            self.proxy_connection(client_conn).await
         }
-    }
-
-    async fn forward_single_cluster_connection(
-        self: Arc<Self>,
-        mut client_conn: TcpStream,
-    ) -> Result<()> {
-        let is_tls = is_tls(&mut client_conn).await?;
-        let mut upstream_conn = self.get_k8s_port_forwarder(None, is_tls).await?;
-        tokio::io::copy_bidirectional(&mut client_conn, &mut upstream_conn).await?;
-
-        Ok(())
-    }
-
-    async fn forward_tls_connection(
-        &self,
-        client_handshake: StartHandshake<TcpStream>,
-        host: &String,
-    ) -> Result<()> {
-        let server_config = {
-            let certs = self.ingress_certs.read().await;
-            match certs.get(host) {
-                None => {
-                    drop(certs);
-                    let server_config = Arc::new(self.get_k8s_server_config(host).await?);
-
-                    self.ingress_certs
-                        .write()
-                        .await
-                        .insert(host.to_string(), server_config.clone());
-                    server_config
-                }
-                Some(cert_config) => cert_config.clone(),
-            }
-        };
-
-        let mut client_stream = client_handshake.into_stream(server_config).await?;
-
-        self.proxy_tls_connection(&mut client_stream, host).await?;
-
-        Ok(())
     }
 
     async fn proxy_tls_connection(
         &self,
         client_stream: &mut TlsStream<TcpStream>,
         host: &String,
+        is_k8s: bool,
     ) -> Result<()> {
-        let connector = TlsConnector::from(Arc::new(get_self_tls_client_config()?));
+        let tunnel = match is_k8s {
+            true => {
+                let domain = rustls::pki_types::ServerName::try_from(host.as_str())
+                    .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid dnsname"))?
+                    .to_owned();
+                let connector = TlsConnector::from(Arc::new(get_self_tls_client_config()?));
 
-        let upstream = self.get_k8s_port_forwarder(Some(host), true).await?;
+                let k8s_forwarder = self.get_k8s_port_forwarder(Some(host), true).await?;
+                let mut k8s_socket = connector.connect(domain, k8s_forwarder).await?;
 
-        let domain = rustls::pki_types::ServerName::try_from(host.as_str())
-            .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid dnsname"))?
-            .to_owned();
-        let mut socket = connector.connect(domain, upstream).await?;
+                tokio::io::copy_bidirectional(client_stream, &mut k8s_socket).await
+            }
+            false => {
+                let mut local_socket = self.get_local_port_forwarder(host).await?;
+                tokio::io::copy_bidirectional(client_stream, &mut local_socket).await
+            }
+        };
 
-        if let Err(e) = tokio::io::copy_bidirectional(client_stream, &mut socket).await {
+        if let Err(e) = tunnel {
             if e.kind() != UnexpectedEof {
                 return Err(Error::from(e));
             }
@@ -195,4 +141,88 @@ impl Proxy {
         Ok(())
     }
 
+    async fn proxy_connection(&self, mut client_conn: TcpStream) -> Result<()> {
+        let url = get_host(&mut client_conn).await?;
+
+        // remap
+        let host = match url.as_str() {
+            "" => None,
+            _ => Some(&url),
+        };
+
+        let is_k8s = self.ingress_clients.contains_key(&url);
+
+        match is_k8s {
+            true => {
+                let mut upstream_conn = self.get_k8s_port_forwarder(host, false).await?;
+                tokio::io::copy_bidirectional(&mut client_conn, &mut upstream_conn).await?;
+            }
+            false => {
+                if let Some(url) = host {
+                    let mut upstream_conn = self.get_local_port_forwarder(url).await?;
+                    tokio::io::copy_bidirectional(&mut client_conn, &mut upstream_conn).await?;
+                } else {
+                    // close connection
+                    client_conn.shutdown().await?;
+                }
+            }
+        }
+
+        Ok(())
+    }
+    async fn get_k8s_port_forwarder(
+        &self,
+        url: Option<&String>,
+        secure: bool,
+    ) -> Result<impl AsyncRead + AsyncWrite + Unpin> {
+        let k8s_client = self.get_k8s_client(url)?;
+
+        k8s_client.get_port_forwarder(secure).await
+    }
+
+    async fn get_local_port_forwarder(
+        &self,
+        url: &String,
+    ) -> Result<impl AsyncRead + AsyncWrite + Unpin> {
+        return Ok(TcpStream::connect(url).await?);
+    }
+
+    async fn get_k8s_server_config(&self, host: &String) -> Result<DestinationConfig> {
+        let certs = self.destinations_certs.read().await;
+        match certs.get(host) {
+            None => {
+                drop(certs);
+                let server_config = Arc::new(self.create_k8s_server_config(host).await?);
+                let k8s_client = self.get_k8s_client(Some(host))?;
+
+                self.destinations_certs.write().await.insert(
+                    host.to_string(),
+                    DestinationConfig::new(server_config.clone(), Some(k8s_client.clone())),
+                );
+                Ok(DestinationConfig::new(server_config, Some(k8s_client)))
+            }
+            Some(cert_config) => Ok(cert_config.clone()),
+        }
+    }
+
+    async fn get_local_server_config(&self, host: &String) -> Result<DestinationConfig> {
+        let certs = self.destinations_certs.read().await;
+        match certs.get(host) {
+            None => {
+                drop(certs);
+                let user_defined_config = Arc::new(self.create_local_server_config(host).await?);
+                let k8s_client = self.get_k8s_client(Some(host))?;
+
+                self.destinations_certs.write().await.insert(
+                    host.to_string(),
+                    DestinationConfig::new(user_defined_config.clone(), Some(k8s_client.clone())),
+                );
+                Ok(DestinationConfig::new(
+                    user_defined_config,
+                    Some(k8s_client),
+                ))
+            }
+            Some(cert_config) => Ok(cert_config.clone()),
+        }
+    }
 }

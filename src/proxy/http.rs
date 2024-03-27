@@ -1,4 +1,3 @@
-use anyhow::anyhow;
 use httparse::{Request, Status};
 use log::error;
 use tokio::net::TcpStream;
@@ -27,7 +26,7 @@ pub(crate) async fn get_host(tcp_stream: &mut TcpStream) -> anyhow::Result<Strin
     };
 
     match req.headers.iter().find(|header| header.name == "Host") {
-        None => Err(anyhow!("Host not found")),
+        None => Ok(String::new()),
         Some(host) => {
             let host_value = String::from_utf8_lossy(host.value).to_string();
             Ok(host_value)

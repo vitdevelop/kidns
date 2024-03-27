@@ -29,7 +29,7 @@ pub(crate) fn get_self_tls_client_config() -> Result<ClientConfig> {
 }
 
 impl Proxy {
-    pub(crate) async fn get_k8s_server_config(&self, server_name: &String) -> Result<ServerConfig> {
+    pub(crate) async fn create_k8s_server_config(&self, server_name: &String) -> Result<ServerConfig> {
         let k8s_client = self.get_k8s_client(Some(server_name))?;
         let (key, cert) = k8s_client.tls_cert(server_name).await?;
 
@@ -46,7 +46,7 @@ impl Proxy {
         Ok(config)
     }
 
-    pub(crate) async fn get_local_server_config(&self, server_name: &String) -> Result<ServerConfig> {
+    pub(crate) async fn create_local_server_config(&self, server_name: &String) -> Result<ServerConfig> {
         let (key, cert) = self.generate_signed_cert(server_name.as_str())?;
 
         let key: PrivateKeyDer = pkcs8_private_keys(&mut BufReader::new(key.as_bytes()))

@@ -14,7 +14,7 @@ pub struct Proxy {
     pub(super) https_port: u16,
     pub(super) k8s_clients: Vec<Arc<K8sClient>>,
     pub(super) ingress_clients: HashMap<String, Arc<K8sClient>>,
-    pub(super) ingress_certs: RwLock<HashMap<String, Arc<ServerConfig>>>,
+    pub(super) destinations_certs: RwLock<HashMap<String, DestinationConfig>>,
     pub(super) root_cert: Option<Certificate>,
 }
 
@@ -43,8 +43,26 @@ impl Proxy {
             https_port: props.proxy.port.https,
             k8s_clients,
             ingress_clients,
-            ingress_certs: RwLock::new(HashMap::new()),
+            destinations_certs: RwLock::new(HashMap::new()),
             root_cert: ca_certificate,
         });
+    }
+}
+
+#[derive(Clone)]
+pub struct DestinationConfig {
+    pub server_config: Arc<ServerConfig>,
+    pub k8s_client: Option<Arc<K8sClient>>,
+}
+
+impl DestinationConfig {
+    pub fn new(
+        server_config: Arc<ServerConfig>,
+        k8s_client: Option<Arc<K8sClient>>,
+    ) -> DestinationConfig {
+        return DestinationConfig {
+            server_config,
+            k8s_client,
+        };
     }
 }
