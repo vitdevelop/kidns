@@ -27,8 +27,8 @@ k8s:
         https: 443
     # namespace where need to load ingress urls, ex. your app
     ingress-namespace: app-namespace
+# if not set, proxy will be disabled
 proxy:
-  # if empty, proxy disabled
   host: 0.0.0.0
   port:
     http: 80
