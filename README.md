@@ -29,7 +29,9 @@ dns:
     # or can be used both, separated by comma(',')
   cache:
     - k8s
-#    - local_cache.conf
+# local_cache can include ipv4, ipv6 with or without port
+    - local_cache.conf
+# if not set, k8s data will not be loaded
 k8s:
   # default(look to ~/.kube/config) or path to yaml file
   # if not set or empty by default is set 'default'

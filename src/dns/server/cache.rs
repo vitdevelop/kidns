@@ -24,13 +24,18 @@ pub struct Cache {
 
 impl Cache {
     pub async fn new(props: &Properties) -> Result<Cache> {
-        let k8s_clients = {
-            let mut clients = Vec::default();
-            for props in &props.k8s {
-                let client = K8sClient::new(props).await?;
-                clients.push(client);
+        let k8s_clients = match &props.k8s {
+            None => {
+                vec![]
             }
-            clients
+            Some(k8s_props) => {
+                let mut clients = Vec::default();
+                for props in k8s_props {
+                    let client = K8sClient::new(props).await?;
+                    clients.push(client);
+                }
+                clients
+            }
         };
 
         let mut cache: HashMap<String, CacheRecord> = HashMap::new();
@@ -71,6 +76,7 @@ async fn load_k8s_ingress_cache(
     for client in k8s_clients {
         urls.extend(client.ingress_urls().await?);
     }
+
     return Ok(urls
         .iter()
         .map(|host| {

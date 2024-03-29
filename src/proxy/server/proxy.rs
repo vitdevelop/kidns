@@ -21,16 +21,24 @@ pub struct Proxy {
 impl Proxy {
     pub async fn new(props: &Properties) -> Result<Proxy> {
         let mut ingress_clients = HashMap::<String, Arc<K8sClient>>::new();
-        let mut k8s_clients = Vec::<Arc<K8sClient>>::with_capacity(props.k8s.len());
-        for k8s_props in &props.k8s {
-            let k8s_client = Arc::new(K8sClient::new(&k8s_props).await?);
+        let k8s_clients = match &props.k8s {
+            Some(k8s_props) => {
+                let mut k8s_clients = Vec::<Arc<K8sClient>>::with_capacity(k8s_props.len());
+                for k8s_prop in k8s_props {
+                    let k8s_client = Arc::new(K8sClient::new(k8s_prop).await?);
 
-            for url in k8s_client.ingress_urls().await? {
-                ingress_clients.insert(url, k8s_client.clone());
+                    for url in k8s_client.ingress_urls().await? {
+                        ingress_clients.insert(url, k8s_client.clone());
+                    }
+
+                    k8s_clients.push(k8s_client.clone());
+                }
+                k8s_clients
             }
-
-            k8s_clients.push(k8s_client.clone());
-        }
+            None => {
+                vec![]
+            }
+        };
 
         let ca_certificate = match &props.proxy.root_ca {
             None => None,
