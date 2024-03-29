@@ -2,6 +2,8 @@ services:
   kidns:
     container_name: kidns
     image: vitdevelop/kidns:latest
+# used when proxy traffic to non k8s services
+#    network_mode: host
     ports:
       - '53:53/udp'
       - '53:53/tcp'
@@ -10,3 +12,7 @@ services:
     volumes:
       - "./config:/kidns/config:ro"
       - "./config.yaml:/kidns/config.yaml:ro"
+#      - "./local_cache.conf:/kidns/local_cache.conf:ro"
+# used when sign proxy traffic with own certificate authority
+#      - "./MyOrg-RootCA.key:/kidns/MyOrg-RootCA.key:ro"
+#      - "./MyOrg-RootCA.pem:/kidns/MyOrg-RootCA.pem:ro"
