@@ -24,13 +24,25 @@ impl Proxy {
         let http_proxy = proxy.clone();
         let http = tokio::spawn(async {
             let http_port = http_proxy.http_port;
-            log_error_result(http_proxy.serve_port(http_port).await)
+            log_error_result(http_proxy.serve_port(http_port).await.map_err(|e| {
+                anyhow!(
+                    "Unable to run proxy on http port {}, with error {:?}",
+                    http_port,
+                    e
+                )
+            }))
         });
 
         let https_proxy = proxy.clone();
         let https = tokio::spawn(async {
             let https_port = https_proxy.https_port;
-            log_error_result(https_proxy.serve_port(https_port).await)
+            log_error_result(https_proxy.serve_port(https_port).await.map_err(|e| {
+                anyhow!(
+                    "Unable to run proxy on https port {}, with error {:?}",
+                    https_port,
+                    e
+                )
+            }))
         });
 
         try_join!(http, https)?;
@@ -48,7 +60,7 @@ impl Proxy {
 
             let proxy = self.clone();
             tokio::spawn(async move {
-                log_error_result(proxy.forward_k8s_connection(client_conn).await);
+                log_error_result(proxy.forward_connection(client_conn).await);
             });
         }
     }
@@ -67,7 +79,7 @@ impl Proxy {
         })
     }
 
-    async fn forward_k8s_connection(self: Arc<Self>, client_conn: TcpStream) -> Result<()> {
+    async fn forward_connection(self: Arc<Self>, client_conn: TcpStream) -> Result<()> {
         let is_tls = is_tls(&client_conn).await?;
 
         if is_tls {
