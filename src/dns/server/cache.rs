@@ -1,18 +1,14 @@
 use crate::config::properties::Properties;
 use crate::dns::record::DnsRecord;
 use crate::k8s::client::K8sClient;
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use log::info;
 use std::collections::HashMap;
-use std::net::Ipv4Addr;
+use std::net::{Ipv4Addr, SocketAddr};
 use std::ops::Add;
-use std::path::Path;
-use std::str::FromStr;
 use std::sync::Arc;
 use std::vec;
 use time::{Duration, OffsetDateTime};
-use tokio::fs::File;
-use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::sync::RwLock;
 
 #[derive(Debug, Clone)]
@@ -44,7 +40,7 @@ impl Cache {
                 let k8s_cache = load_k8s_ingress_cache(&k8s_clients).await?;
                 cache = cache.into_iter().chain(k8s_cache).collect();
             } else {
-                let file_cache = load_local_cache(&cache_type).await?;
+                let file_cache = load_local_dns_cache(&cache_type).await?;
                 cache = cache.into_iter().chain(file_cache).collect();
             }
         }
@@ -68,13 +64,14 @@ impl Cache {
     }
 }
 
-async fn load_k8s_ingress_cache(k8s_clients: &Vec<K8sClient>) -> Result<HashMap<String, CacheRecord>> {
+async fn load_k8s_ingress_cache(
+    k8s_clients: &Vec<K8sClient>,
+) -> Result<HashMap<String, CacheRecord>> {
     let mut urls = Vec::default();
     for client in k8s_clients {
         urls.extend(client.ingress_urls().await?);
     }
-    return Ok(
-        urls
+    return Ok(urls
         .iter()
         .map(|host| {
             return (
@@ -93,49 +90,32 @@ async fn load_k8s_ingress_cache(k8s_clients: &Vec<K8sClient>) -> Result<HashMap<
         .collect());
 }
 
-async fn load_local_cache(path: &String) -> Result<HashMap<String, CacheRecord>> {
-    let mut lines = read_lines(path).await?;
-
-    let lines: HashMap<String, CacheRecord> = lines
-        .iter_mut()
-        .map(|line| line.split_once("="))
-        .filter(|value| value.is_some())
-        .map(|value| value.unwrap())
-        .map(|(url, ip)| (url, Ipv4Addr::from_str(ip)))
-        .filter(|(_, ip)| ip.is_ok())
-        .map(|(url, ip)| (url, ip.unwrap()))
+async fn load_local_dns_cache(path: &String) -> Result<HashMap<String, CacheRecord>> {
+    let lines = crate::util::load_local_cache(path)
+        .await?
+        .iter()
         .map(|(url, ip)| {
+            let dns_record = match ip {
+                SocketAddr::V4(ip4) => DnsRecord::A {
+                    domain: url.to_string(),
+                    addr: ip4.ip().clone(),
+                    ttl: 300u32,
+                },
+                SocketAddr::V6(ip6) => DnsRecord::AAAA {
+                    domain: url.to_string(),
+                    addr: ip6.ip().clone(),
+                    ttl: 300u32,
+                },
+            };
             return (
                 url.to_string(),
                 CacheRecord {
                     expires: OffsetDateTime::now_utc().add(Duration::days(365)),
-                    records: vec![DnsRecord::A {
-                        domain: url.to_string(),
-                        addr: ip,
-                        ttl: 300u32,
-                    }],
+                    records: vec![dns_record],
                 },
             );
         })
         .collect();
-
-    return Ok(lines);
-}
-
-async fn read_lines<P>(filename: P) -> Result<Vec<String>>
-where
-    P: AsRef<Path>,
-{
-    let file = match File::open(filename).await {
-        Ok(f) => Ok(f),
-        Err(e) => Err(anyhow!("Can't open file, err: {:#?}", e)),
-    }?;
-    let mut line_buf = BufReader::new(file).lines();
-    let mut lines: Vec<String> = Vec::default();
-
-    while let Some(line) = line_buf.next_line().await? {
-        lines.push(line);
-    }
 
     return Ok(lines);
 }

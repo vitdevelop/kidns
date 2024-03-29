@@ -152,19 +152,16 @@ impl Proxy {
 
         let is_k8s = self.ingress_clients.contains_key(&url);
 
-        match is_k8s {
-            true => {
-                let mut upstream_conn = self.get_k8s_port_forwarder(host, false).await?;
+        if is_k8s {
+            let mut upstream_conn = self.get_k8s_port_forwarder(host, false).await?;
+            tokio::io::copy_bidirectional(&mut client_conn, &mut upstream_conn).await?;
+        } else {
+            if let Some(url) = host {
+                let mut upstream_conn = self.get_local_port_forwarder(url).await?;
                 tokio::io::copy_bidirectional(&mut client_conn, &mut upstream_conn).await?;
-            }
-            false => {
-                if let Some(url) = host {
-                    let mut upstream_conn = self.get_local_port_forwarder(url).await?;
-                    tokio::io::copy_bidirectional(&mut client_conn, &mut upstream_conn).await?;
-                } else {
-                    // close connection
-                    client_conn.shutdown().await?;
-                }
+            } else {
+                // close connection
+                client_conn.shutdown().await?;
             }
         }
 
