@@ -1,5 +1,6 @@
 use crate::proxy::server::proxy::Proxy;
 use anyhow::{anyhow, Result};
+use rcgen::{Certificate, KeyPair};
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
 use rustls::pki_types::ServerName;
 use rustls::server::danger::ClientCertVerifier;
@@ -29,7 +30,10 @@ pub(crate) fn get_self_tls_client_config() -> Result<ClientConfig> {
 }
 
 impl Proxy {
-    pub(crate) async fn create_k8s_server_config(&self, server_name: &String) -> Result<ServerConfig> {
+    pub(crate) async fn create_k8s_server_config(
+        &self,
+        server_name: &String,
+    ) -> Result<ServerConfig> {
         let k8s_client = self.get_k8s_client(Some(server_name))?;
         let (key, cert) = k8s_client.tls_cert(server_name).await?;
 
@@ -46,12 +50,16 @@ impl Proxy {
         Ok(config)
     }
 
-    pub(crate) async fn create_local_server_config(&self, server_name: &String) -> Result<ServerConfig> {
+    pub(crate) async fn create_local_server_config(
+        &self,
+        server_name: &String,
+    ) -> Result<ServerConfig> {
         let (key, cert) = self.generate_signed_cert(server_name.as_str())?;
 
         let key: PrivateKeyDer = pkcs8_private_keys(&mut BufReader::new(key.as_bytes()))
             .next()
-            .ok_or(anyhow!("Unable to find generated cert key"))??.into();
+            .ok_or(anyhow!("Unable to find generated cert key"))??
+            .into();
 
         let cert = vec![certs(&mut BufReader::new(cert.as_bytes()))
             .next()
@@ -62,6 +70,11 @@ impl Proxy {
             .with_single_cert(cert, key)?;
         Ok(config)
     }
+}
+
+pub(crate) struct CertificateData {
+    pub(crate) cert: Certificate,
+    pub(crate) key: KeyPair,
 }
 
 #[derive(Debug)]

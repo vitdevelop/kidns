@@ -3,13 +3,13 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
-use rcgen::Certificate;
 use rustls::ServerConfig;
 use tokio::sync::RwLock;
 
 use crate::config::properties::Properties;
 use crate::k8s::client::K8sClient;
 use crate::proxy::server::cert::get_root_ca_params;
+use crate::proxy::server::tls::CertificateData;
 use crate::util::load_local_cache;
 
 pub struct Proxy {
@@ -20,7 +20,7 @@ pub struct Proxy {
     pub(super) ingress_clients: HashMap<String, Arc<K8sClient>>,
     pub(super) local_clients: HashMap<String, SocketAddr>,
     pub(super) destinations_certs: RwLock<HashMap<String, Arc<ServerConfig>>>,
-    pub(super) root_cert: Option<Certificate>,
+    pub(super) root_cert: Option<CertificateData>,
 }
 
 impl Proxy {

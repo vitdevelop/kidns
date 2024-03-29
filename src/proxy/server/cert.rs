@@ -1,13 +1,17 @@
-use crate::proxy::server::proxy::Proxy;
-use anyhow::anyhow;
-use rcgen::{Certificate, CertificateParams, DnType, KeyPair, PKCS_RSA_SHA256, SanType};
 use std::env;
 use std::fs::File;
 use std::io::Read;
 use std::ops::Add;
+
+use anyhow::{anyhow, Error};
+use rcgen::{CertificateParams, DnType, KeyPair, SanType};
 use rsa::pkcs8::EncodePrivateKey;
 use rsa::RsaPrivateKey;
+use rustls::pki_types::PrivateKeyDer;
 use time::{Duration, OffsetDateTime};
+
+use crate::proxy::server::proxy::Proxy;
+use crate::proxy::server::tls::CertificateData;
 
 /// Supported Keypair Algorithms
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -31,10 +35,12 @@ impl KeyPairAlgorithm {
 
                 let rng = ring::rand::SystemRandom::new();
                 let alg = &rcgen::PKCS_ED25519;
-                let pkcs8_bytes =
-                    Ed25519KeyPair::generate_pkcs8(&rng).or(Err(rcgen::Error::RingUnspecified))?;
 
-                Ok(KeyPair::from_der_and_sign_algo(pkcs8_bytes.as_ref(), alg)?)
+                let pkcs8 =
+                    Ed25519KeyPair::generate_pkcs8(&rng).or(Err(rcgen::Error::RingUnspecified))?;
+                let pkcs8_bytes = PrivateKeyDer::try_from(pkcs8.as_ref()).map_err(Error::msg)?;
+
+                Ok(KeyPair::from_der_and_sign_algo(&pkcs8_bytes, alg)?)
             }
             KeyPairAlgorithm::EcdsaP256 => {
                 use ring::signature::EcdsaKeyPair;
@@ -42,10 +48,11 @@ impl KeyPairAlgorithm {
 
                 let rng = ring::rand::SystemRandom::new();
                 let alg = &rcgen::PKCS_ECDSA_P256_SHA256;
-                let pkcs8_bytes =
-                    EcdsaKeyPair::generate_pkcs8(&ECDSA_P256_SHA256_ASN1_SIGNING, &rng)
-                        .or(Err(rcgen::Error::RingUnspecified))?;
-                Ok(KeyPair::from_der_and_sign_algo(pkcs8_bytes.as_ref(), alg)?)
+
+                let pkcs8 = EcdsaKeyPair::generate_pkcs8(&ECDSA_P256_SHA256_ASN1_SIGNING, &rng)
+                    .or(Err(rcgen::Error::RingUnspecified))?;
+                let pkcs8_bytes = PrivateKeyDer::try_from(pkcs8.as_ref()).map_err(Error::msg)?;
+                Ok(KeyPair::from_der_and_sign_algo(&pkcs8_bytes, alg)?)
             }
             KeyPairAlgorithm::EcdsaP384 => {
                 use ring::signature::EcdsaKeyPair;
@@ -53,11 +60,12 @@ impl KeyPairAlgorithm {
 
                 let rng = ring::rand::SystemRandom::new();
                 let alg = &rcgen::PKCS_ECDSA_P384_SHA384;
-                let pkcs8_bytes =
-                    EcdsaKeyPair::generate_pkcs8(&ECDSA_P384_SHA384_ASN1_SIGNING, &rng)
-                        .or(Err(rcgen::Error::RingUnspecified))?;
 
-                Ok(KeyPair::from_der_and_sign_algo(pkcs8_bytes.as_ref(), alg)?)
+                let pkcs8 = EcdsaKeyPair::generate_pkcs8(&ECDSA_P384_SHA384_ASN1_SIGNING, &rng)
+                    .or(Err(rcgen::Error::RingUnspecified))?;
+                let pkcs8_bytes = PrivateKeyDer::try_from(pkcs8.as_ref()).map_err(Error::msg)?;
+
+                Ok(KeyPair::from_der_and_sign_algo(&pkcs8_bytes, alg)?)
             }
             KeyPairAlgorithm::RSA => {
                 let mut rng = rand::rngs::OsRng;
@@ -82,20 +90,21 @@ impl Proxy {
         let mut client_cert_params = CertificateParams::default();
         // client_cert_params.alg = &PKCS_ECDSA_P384_SHA384;
         // client_cert_params.key_pair = Some(KeyPairAlgorithm::EcdsaP384.to_key_pair()?);
-        client_cert_params.alg = &PKCS_RSA_SHA256;
-        client_cert_params.key_pair = Some(KeyPairAlgorithm::RSA.to_key_pair()?);
+        // client_cert_params.alg = &PKCS_RSA_SHA256;
+        // client_cert_params.key_pair = Some(KeyPairAlgorithm::RSA.to_key_pair()?);
         client_cert_params
             .distinguished_name
             .push(DnType::CommonName, domain);
 
-        client_cert_params.subject_alt_names = vec![SanType::DnsName(domain.to_string())];
+        client_cert_params.subject_alt_names = vec![SanType::DnsName(domain.try_into()?)];
 
         client_cert_params.not_before = OffsetDateTime::now_utc();
         client_cert_params.not_after = OffsetDateTime::now_utc().add(Duration::days(365));
 
-        let client_cert = Certificate::from_params(client_cert_params)?;
-        let client_crt = client_cert.serialize_pem_with_signer(ca)?;
-        let client_key = client_cert.serialize_private_key_pem();
+        let csrp_key = KeyPairAlgorithm::RSA.to_key_pair()?;
+        let csrp = client_cert_params.signed_by(&csrp_key, &ca.cert, &ca.key)?;
+        let client_crt = csrp.pem();
+        let client_key = csrp_key.serialize_pem();
 
         Ok((client_key, client_crt))
     }
@@ -104,7 +113,7 @@ impl Proxy {
 pub(crate) async fn get_root_ca_params(
     key_path: &String,
     cert_path: &String,
-) -> anyhow::Result<Certificate> {
+) -> anyhow::Result<CertificateData> {
     let parent = env::current_dir()?;
 
     let cert_path = parent.join(cert_path).to_str().unwrap().to_string();
@@ -116,10 +125,12 @@ pub(crate) async fn get_root_ca_params(
     let mut key_file = String::new();
     File::open(key_path)?.read_to_string(&mut key_file)?;
 
-    Ok(Certificate::from_params(
-        CertificateParams::from_ca_cert_pem(
-            cert_file.as_str(),
-            KeyPair::from_pem(key_file.as_str())?,
-        )?,
-    )?)
+    let key_pair = KeyPair::from_pem(key_file.as_str())?;
+    Ok(CertificateData {
+        cert: CertificateParams::from_ca_cert_pem(cert_file.as_str())?
+            .self_signed(&key_pair)
+            .map_err(Error::msg)?,
+
+        key: key_pair,
+    })
 }
