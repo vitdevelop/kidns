@@ -36,8 +36,7 @@ pub async fn load_local_cache(path: &String) -> anyhow::Result<HashMap<String, S
     let lines: HashMap<String, SocketAddr> = lines
         .iter_mut()
         .map(|line| line.split_once("="))
-        .filter(|value| value.is_some())
-        .map(|value| value.unwrap())
+        .flatten()
         .map(|(url, ip)| {
             let addr = match SocketAddr::from_str(ip) {
                 Ok(addr) => Ok(addr),
@@ -45,7 +44,7 @@ pub async fn load_local_cache(path: &String) -> anyhow::Result<HashMap<String, S
                     // parse without port
                     match IpAddr::from_str(ip) {
                         Ok(ip_addr) => Ok(SocketAddr::new(ip_addr, 0)),
-                        Err(_) => Err("Unknown ip")
+                        Err(_) => Err("Unknown ip"),
                     }
                 }
             };
