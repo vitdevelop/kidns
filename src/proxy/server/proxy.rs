@@ -1,12 +1,14 @@
+use std::collections::HashMap;
+use std::sync::Arc;
+
+use anyhow::{anyhow, Result};
+use rcgen::Certificate;
+use rustls::ServerConfig;
+use tokio::sync::RwLock;
+
 use crate::config::properties::Properties;
 use crate::k8s::client::K8sClient;
 use crate::proxy::server::cert::get_root_ca_params;
-use anyhow::Result;
-use rcgen::Certificate;
-use rustls::ServerConfig;
-use std::collections::HashMap;
-use std::sync::Arc;
-use tokio::sync::RwLock;
 
 pub struct Proxy {
     pub(super) host: String,
@@ -39,16 +41,20 @@ impl Proxy {
                 vec![]
             }
         };
+        let proxy_props = match &props.proxy {
+            None => Err(anyhow!("Proxy properties is missing")),
+            Some(proxy_props) => Ok(proxy_props),
+        }?;
 
-        let ca_certificate = match &props.proxy.root_ca {
+        let ca_certificate = match &proxy_props.root_ca {
             None => None,
             Some(tls_props) => Some(get_root_ca_params(&tls_props.key, &tls_props.cert).await?),
         };
 
         return Ok(Proxy {
-            host: props.proxy.host.to_string(),
-            http_port: props.proxy.port.http,
-            https_port: props.proxy.port.https,
+            host: proxy_props.host.to_string(),
+            http_port: proxy_props.port.http,
+            https_port: proxy_props.port.https,
             k8s_clients,
             ingress_clients,
             destinations_certs: RwLock::new(HashMap::new()),

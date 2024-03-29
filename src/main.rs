@@ -27,7 +27,7 @@ async fn main() -> anyhow::Result<()> {
         });
     }
 
-    if props.proxy.host.ne("") {
+    if props.proxy.is_some() {
         // run proxy server
         let proxy = Proxy::new(&props).await?;
         tokio::spawn(async {

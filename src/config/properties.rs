@@ -32,7 +32,7 @@ const fn default_ports() -> PortProps {
 pub struct Properties {
     pub dns: DnsProps,
     pub k8s: Option<Vec<K8sProps>>,
-    pub proxy: ProxyProps,
+    pub proxy: Option<ProxyProps>,
 
     #[serde(rename = "log-level")]
     pub log_level: String,
